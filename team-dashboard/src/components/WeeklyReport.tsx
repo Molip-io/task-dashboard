@@ -2,47 +2,72 @@
 
 import { useMemo } from "react";
 import type { WorkItem } from "@/lib/notion";
-import type { SlackData, SlackMessage } from "@/lib/slack";
+import type { SlackData, SlackMessage, SlackCategory } from "@/lib/slack";
 
 interface Props {
   items: WorkItem[];
   slack?: SlackData;
 }
 
-function formatTs(ts: string) {
-  const d = new Date(Number(ts.split(".")[0]) * 1000);
-  return d.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const CATEGORY_CONFIG: Record<SlackCategory, { label: string; icon: string; color: string; dotColor: string }> = {
+  schedule: { label: "예정된 일정", icon: "📅", color: "text-purple-700", dotColor: "bg-purple-400" },
+  action:   { label: "필요한 액션", icon: "⚡", color: "text-amber-700", dotColor: "bg-amber-400" },
+  issue:    { label: "이슈 / 리스크", icon: "🚨", color: "text-red-700", dotColor: "bg-red-400" },
+  update:   { label: "진행 현황", icon: "📋", color: "text-blue-700", dotColor: "bg-blue-400" },
+};
+
+const CATEGORY_ORDER: SlackCategory[] = ["issue", "schedule", "action", "update"];
+
+function dedup(msgs: SlackMessage[]): SlackMessage[] {
+  const seen = new Set<string>();
+  return msgs.filter((m) => {
+    const key = m.summary.slice(0, 40);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
-function MessageBadges({ msg }: { msg: SlackMessage }) {
-  return (
-    <span className="flex gap-1 shrink-0">
-      {msg.isBlocker  && <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">블로커</span>}
-      {msg.isDecision && <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">결정</span>}
-      {msg.isAction   && <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">액션</span>}
-    </span>
-  );
-}
-
-function SlackMessages({ msgs }: { msgs: SlackMessage[] }) {
+function SlackDigest({ msgs }: { msgs: SlackMessage[] }) {
   if (msgs.length === 0) return null;
+
+  const byCategory = new Map<SlackCategory, SlackMessage[]>();
+  for (const msg of msgs) {
+    if (!byCategory.has(msg.category)) byCategory.set(msg.category, []);
+    byCategory.get(msg.category)!.push(msg);
+  }
+
+  const sections = CATEGORY_ORDER.filter((cat) => byCategory.has(cat));
+  if (sections.length === 0) return null;
+
   return (
-    <div className="mt-4 border-t border-gray-100 pt-4">
-      <p className="text-xs font-medium text-gray-500 mb-2">💬 슬랙 논의 ({msgs.length}건)</p>
-      <div className="space-y-2">
-        {msgs.map((msg) => (
-          <div key={msg.ts} className="flex items-start gap-2 text-sm">
-            <MessageBadges msg={msg} />
-            <div className="min-w-0 flex-1">
-              <p className="text-gray-700 leading-relaxed line-clamp-2">{msg.text}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                <span className="font-medium text-gray-500">#{msg.channelName}</span>
-                {" · "}{formatTs(msg.ts)}
-              </p>
-            </div>
+    <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+      <p className="text-xs font-medium text-gray-500">💬 슬랙 논의 요약 ({msgs.length}건)</p>
+      {sections.map((cat) => {
+        const config = CATEGORY_CONFIG[cat];
+        const items = dedup(byCategory.get(cat)!);
+        const shown = cat === "update" ? items.slice(0, 5) : items;
+        const hidden = cat === "update" ? items.length - 5 : 0;
+
+        return (
+          <div key={cat}>
+            <p className={`text-xs font-semibold ${config.color} mb-1`}>
+              {config.icon} {config.label}
+            </p>
+            <ul className="space-y-0.5">
+              {shown.map((msg) => (
+                <li key={msg.ts} className="text-sm flex items-start gap-2">
+                  <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor} shrink-0 mt-1.5`} />
+                  <span className="text-gray-700">{msg.summary}</span>
+                </li>
+              ))}
+              {hidden > 0 && (
+                <li className="text-xs text-gray-400 pl-4">... 외 {hidden}건</li>
+              )}
+            </ul>
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }
@@ -248,7 +273,7 @@ export default function WeeklyReport({ items, slack }: Props) {
                 })}
 
                 {/* 이 프로젝트 관련 슬랙 논의 */}
-                <SlackMessages msgs={projectSlack} />
+                <SlackDigest msgs={projectSlack} />
               </div>
             </div>
           );
@@ -278,7 +303,7 @@ export default function WeeklyReport({ items, slack }: Props) {
             <span className="text-xs text-gray-400">{(slackByProject.get("__other__") ?? []).length}건</span>
           </div>
           <div className="p-5">
-            <SlackMessages msgs={slackByProject.get("__other__") ?? []} />
+            <SlackDigest msgs={slackByProject.get("__other__") ?? []} />
           </div>
         </div>
       )}

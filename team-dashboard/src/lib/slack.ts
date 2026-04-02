@@ -1,15 +1,16 @@
 const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN || "";
 const SLACK_API = "https://slack.com/api";
 
+export type SlackCategory = "schedule" | "action" | "issue" | "update";
+
 export interface SlackMessage {
   ts: string;
   text: string;
+  summary: string;
   userId: string;
   channel: string;
   channelName: string;
-  isDecision: boolean;
-  isAction: boolean;
-  isBlocker: boolean;
+  category: SlackCategory;
 }
 
 export interface SlackData {
@@ -29,17 +30,43 @@ async function slackFetch(method: string, params: Record<string, string> = {}) {
   return data;
 }
 
-const DECISION_KW = ["결정", "확정", "결론", "합의", "승인", "결정됨"];
-const ACTION_KW   = ["해주세요", "부탁", "처리", "담당", "액션", "할일", "해야"];
-const BLOCKER_KW  = ["블로커", "막혔", "문제", "지연", "안됨", "불가", "이슈"];
+const SCHEDULE_KW = ["일정", "회의", "미팅", "리뷰", "시간", "장소", "아젠다", "세팅"];
+const ACTION_KW   = ["해주세요", "부탁드", "수정 부탁", "확인해주", "처리", "공유 부탁", "준비 부탁", "전달 부탁"];
+const ISSUE_KW    = ["블로커", "막혔", "지연", "안됨", "불가", "이슈", "버그", "크래시", "에러", "문제"];
 
-function classify(text: string) {
+function categorize(text: string): SlackCategory {
   const t = text.toLowerCase();
-  return {
-    isDecision: DECISION_KW.some((k) => t.includes(k)),
-    isAction:   ACTION_KW.some((k) => t.includes(k)),
-    isBlocker:  BLOCKER_KW.some((k) => t.includes(k)),
-  };
+  if (ISSUE_KW.some((k) => t.includes(k))) return "issue";
+  if (SCHEDULE_KW.some((k) => t.includes(k))) return "schedule";
+  if (ACTION_KW.some((k) => t.includes(k))) return "action";
+  return "update";
+}
+
+/** Slack 마크업에서 핵심 한 줄 요약 추출 */
+function extractSummary(text: string): string {
+  // 볼드 텍스트(*...*) 중 제목성 텍스트 추출
+  const bolds = [...text.matchAll(/\*([^*]{4,80})\*/g)].map((m) => m[1].trim());
+  const title = bolds.find((b) => !b.startsWith("<@") && !b.startsWith("-") && b.length > 4);
+  if (title) {
+    return cleanSlackText(title).slice(0, 120);
+  }
+  // 볼드 없으면 첫 의미 있는 줄
+  const lines = text.split("\n").map((l) => l.replace(/^[>\-\s*]+/, "").trim()).filter((l) => l.length > 4);
+  return cleanSlackText(lines[0] || text).slice(0, 120);
+}
+
+function cleanSlackText(t: string): string {
+  return t
+    .replace(/<@[A-Z0-9]+>/g, "")
+    .replace(/<!subteam\^[A-Z0-9]+>/g, "")
+    .replace(/<https?:\/\/[^|>]+\|([^>]+)>/g, "$1")
+    .replace(/<https?:\/\/[^>]+>/g, "")
+    .replace(/:[a-z_\-+0-9]+:/g, "")
+    .replace(/&gt;/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function fetchSlackData(): Promise<SlackData> {
@@ -64,16 +91,16 @@ export async function fetchSlackData(): Promise<SlackData> {
         });
         for (const msg of messages as { ts: string; text: string; user?: string; subtype?: string }[]) {
           if (!msg.text || msg.subtype) continue;
-          const { isDecision, isAction, isBlocker } = classify(msg.text);
+          const summary = extractSummary(msg.text);
+          if (summary.length < 5) continue; // 의미 없는 메시지 스킵
           results.push({
             ts: msg.ts,
             text: msg.text.slice(0, 300),
+            summary,
             userId: msg.user ?? "",
             channel: ch.id,
             channelName: ch.name,
-            isDecision,
-            isAction,
-            isBlocker,
+            category: categorize(msg.text),
           });
         }
       })
