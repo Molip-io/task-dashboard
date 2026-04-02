@@ -98,15 +98,19 @@ export default function WeeklyReport({ items, slack }: Props) {
       .sort((a, b) => b.inProgress.length - a.inProgress.length || b.done.length + b.inProgress.length + b.todo.length - (a.done.length + a.inProgress.length + a.todo.length));
   }, [items]);
 
-  // 채널명 → 프로젝트명 매핑 (정규화 후 부분 문자열 비교)
+  // 채널명 → 프로젝트명 매핑 (별칭 + 정규화 부분 문자열 비교)
   const slackByProject = useMemo((): Map<string, SlackMessage[]> => {
     const map = new Map<string, SlackMessage[]>();
     if (!slack) return map;
 
+    // 채널명 키워드 → Notion 프로젝트명 별칭 (한영 차이 등)
+    const CHANNEL_ALIASES: Record<string, string> = {
+      "마이버거다이너": "My Burger Diner",
+    };
+
     const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_]/g, "");
     const projectNames = reports.map((r) => r.name);
 
-    // 채널별로 그룹핑 후 프로젝트 매칭
     const byChannel = new Map<string, SlackMessage[]>();
     for (const msg of slack.messages) {
       if (!byChannel.has(msg.channelName)) byChannel.set(msg.channelName, []);
@@ -115,10 +119,20 @@ export default function WeeklyReport({ items, slack }: Props) {
 
     for (const [channelName, msgs] of byChannel) {
       const normCh = normalize(channelName);
-      const matched = projectNames.find((name) => {
-        const normPrj = normalize(name);
-        return normPrj.includes(normCh) || normCh.includes(normPrj);
-      });
+
+      // 1) 별칭 매칭
+      let matched = Object.entries(CHANNEL_ALIASES).find(([alias]) =>
+        normCh.includes(normalize(alias))
+      )?.[1];
+
+      // 2) 정규화 부분 문자열 비교
+      if (!matched) {
+        matched = projectNames.find((name) => {
+          const normPrj = normalize(name);
+          return normPrj.includes(normCh) || normCh.includes(normPrj);
+        });
+      }
+
       const key = matched ?? "__other__";
       if (!map.has(key)) map.set(key, []);
       for (const msg of msgs) map.get(key)!.push(msg);

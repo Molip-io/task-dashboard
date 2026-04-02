@@ -32,7 +32,6 @@ async function slackFetch(method: string, params: Record<string, string> = {}) {
 const DECISION_KW = ["결정", "확정", "결론", "합의", "승인", "결정됨"];
 const ACTION_KW   = ["해주세요", "부탁", "처리", "담당", "액션", "할일", "해야"];
 const BLOCKER_KW  = ["블로커", "막혔", "문제", "지연", "안됨", "불가", "이슈"];
-const PROJECT_KW  = ["피자레디", "버거", "wool", "포지", "포춘", "sprint", "스프린트", "마감", "배포", "빌드"];
 
 function classify(text: string) {
   const t = text.toLowerCase();
@@ -40,7 +39,6 @@ function classify(text: string) {
     isDecision: DECISION_KW.some((k) => t.includes(k)),
     isAction:   ACTION_KW.some((k) => t.includes(k)),
     isBlocker:  BLOCKER_KW.some((k) => t.includes(k)),
-    isRelevant: PROJECT_KW.some((k) => t.includes(k.toLowerCase())),
   };
 }
 
@@ -48,17 +46,17 @@ export async function fetchSlackData(): Promise<SlackData> {
   if (!SLACK_TOKEN) return { messages: [], lastUpdated: new Date().toISOString() };
 
   try {
-    const { channels } = await slackFetch("conversations.list", {
-      types: "public_channel",
+    // 봇이 가입된 채널만 조회 (비공개 채널 포함)
+    const { channels } = await slackFetch("users.conversations", {
+      types: "public_channel,private_channel",
       limit: "50",
-      exclude_archived: "true",
     });
 
     const oldest = String(Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60);
     const results: SlackMessage[] = [];
 
     await Promise.allSettled(
-      (channels as { id: string; name: string }[]).slice(0, 15).map(async (ch) => {
+      (channels as { id: string; name: string }[]).map(async (ch) => {
         const { messages } = await slackFetch("conversations.history", {
           channel: ch.id,
           oldest,
@@ -66,8 +64,7 @@ export async function fetchSlackData(): Promise<SlackData> {
         });
         for (const msg of messages as { ts: string; text: string; user?: string; subtype?: string }[]) {
           if (!msg.text || msg.subtype) continue;
-          const { isDecision, isAction, isBlocker, isRelevant } = classify(msg.text);
-          if (!isDecision && !isAction && !isBlocker && !isRelevant) continue;
+          const { isDecision, isAction, isBlocker } = classify(msg.text);
           results.push({
             ts: msg.ts,
             text: msg.text.slice(0, 300),
@@ -83,7 +80,7 @@ export async function fetchSlackData(): Promise<SlackData> {
     );
 
     results.sort((a, b) => Number(b.ts) - Number(a.ts));
-    return { messages: results.slice(0, 50), lastUpdated: new Date().toISOString() };
+    return { messages: results.slice(0, 100), lastUpdated: new Date().toISOString() };
   } catch (e) {
     console.error("Slack fetch error:", e);
     return { messages: [], lastUpdated: new Date().toISOString() };
