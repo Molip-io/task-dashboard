@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { DashboardData, WorkItem } from "@/lib/notion";
+import type { SlackData } from "@/lib/slack";
 import SummaryCards from "./SummaryCards";
 import WorkTable from "./WorkTable";
 import ProjectView from "./ProjectView";
@@ -23,7 +24,7 @@ const tabs: TabOption[] = [
 ];
 
 export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<(DashboardData & { slack?: SlackData }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -36,7 +37,7 @@ export default function Dashboard() {
         if (!res.ok) throw new Error("데이터 로딩 실패");
         return res.json();
       })
-      .then((d: DashboardData) => {
+      .then((d: DashboardData & { slack?: SlackData }) => {
         setData(d);
         setLoading(false);
       })
@@ -199,7 +200,7 @@ export default function Dashboard() {
 
       {/* 탭별 콘텐츠 */}
       {activeTab === "weekly" ? (
-        <WeeklyReport items={data.items} />
+        <WeeklyReport items={data.items} slack={data.slack} />
       ) : activeTab === "project" && selectedFilter === "전체" ? (
         <ProjectView items={filteredItems} />
       ) : (

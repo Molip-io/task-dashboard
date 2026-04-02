@@ -1,15 +1,19 @@
 import { fetchDashboardData } from "@/lib/notion";
+import { fetchSlackData } from "@/lib/slack";
 
-export const revalidate = 60; // ISR: 60초마다 갱신
+export const revalidate = 60;
 
 export async function GET() {
   try {
-    const data = await fetchDashboardData();
-    return Response.json(data);
+    const [data, slack] = await Promise.all([
+      fetchDashboardData(),
+      fetchSlackData(),
+    ]);
+    return Response.json({ ...data, slack });
   } catch (error) {
     console.error("Dashboard API error:", error);
     return Response.json(
-      { error: "Notion 데이터 조회 실패" },
+      { error: "데이터 조회 실패" },
       { status: 500 }
     );
   }
