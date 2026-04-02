@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "uigen",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/molip/uigen && npm run dev"],
+      "port": 3000
+    },
+    {
+      "name": "task-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/molip/claudecode/ohmyclaudecode/task-api && npm run dev"],
+      "port": 3000
+    },
+    {
+      "name": "team-dashboard",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/molip/claudecode/test/team-dashboard && npm run dev -- -p 3001"],
+      "port": 3001
+    }
+  ]
+}

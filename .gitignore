@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code - 민감 정보
+.claude/settings.local.json
+
+# 임시 작업 데이터
+_workspace/
+
+# team-dashboard - 환경변수 (API 키)
+team-dashboard/.env.local
+team-dashboard/.env*.local
+
+# team-dashboard - 빌드 산출물
+team-dashboard/.next/
+team-dashboard/node_modules/
+team-dashboard/.omc/
+
+# OMC
+.omc/
