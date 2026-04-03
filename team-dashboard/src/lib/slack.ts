@@ -33,6 +33,7 @@ async function slackFetch(method: string, params: Record<string, string> = {}) {
 const SCHEDULE_KW = ["일정", "회의", "미팅", "리뷰", "시간", "장소", "아젠다", "세팅"];
 const ACTION_KW   = ["해주세요", "부탁드", "수정 부탁", "확인해주", "처리", "공유 부탁", "준비 부탁", "전달 부탁"];
 const ISSUE_KW    = ["블로커", "막혔", "지연", "안됨", "불가", "이슈", "버그", "크래시", "에러", "문제"];
+const NOISE_KW    = ["병원", "출근이", "늦을", "늦어질", "반차", "연차", "외출", "조퇴", "개인 사정"];
 
 function categorize(text: string): SlackCategory {
   const t = text.toLowerCase();
@@ -40,19 +41,6 @@ function categorize(text: string): SlackCategory {
   if (SCHEDULE_KW.some((k) => t.includes(k))) return "schedule";
   if (ACTION_KW.some((k) => t.includes(k))) return "action";
   return "update";
-}
-
-/** Slack 마크업에서 핵심 한 줄 요약 추출 */
-function extractSummary(text: string): string {
-  // 볼드 텍스트(*...*) 중 제목성 텍스트 추출
-  const bolds = [...text.matchAll(/\*([^*]{4,80})\*/g)].map((m) => m[1].trim());
-  const title = bolds.find((b) => !b.startsWith("<@") && !b.startsWith("-") && b.length > 4);
-  if (title) {
-    return cleanSlackText(title).slice(0, 120);
-  }
-  // 볼드 없으면 첫 의미 있는 줄
-  const lines = text.split("\n").map((l) => l.replace(/^[>\-\s*]+/, "").trim()).filter((l) => l.length > 4);
-  return cleanSlackText(lines[0] || text).slice(0, 120);
 }
 
 function cleanSlackText(t: string): string {
@@ -65,8 +53,55 @@ function cleanSlackText(t: string): string {
     .replace(/&gt;/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
+    .replace(/\*+/g, "")           // 볼드 마커 잔여 제거
+    .replace(/^\[몰입\]\s*/i, "")  // [몰입] 접두사 제거
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** 주간 보고에 불필요한 노이즈 메시지 필터 */
+function isNoise(text: string): boolean {
+  const clean = cleanSlackText(text);
+  // 개인 일정 (짧은 메시지 + 노이즈 키워드)
+  if (clean.length < 100 && NOISE_KW.some((k) => clean.includes(k))) return true;
+  // 스레드 제목뿐 — 15자 미만이면 내용 없음
+  if (clean.length < 15) return true;
+  // 단순 공지 (세팅/예약만 있고 실질 내용 없음)
+  if (clean.length < 50 && /세팅|예약/.test(clean) && !/스펙|아젠다|빌드/.test(clean)) return true;
+  // 질문만 있는 짧은 메시지 (보고 내용 아님)
+  if (clean.length < 50 && clean.endsWith("?")) return true;
+  return false;
+}
+
+/** 제목 + 본문 핵심을 결합한 한 줄 요약 */
+function extractSummary(text: string): string {
+  // 1) 볼드 제목 추출
+  const bolds = [...text.matchAll(/\*([^*]{4,80})\*/g)].map((m) => m[1].trim());
+  const title = bolds.find(
+    (b) => !b.startsWith("<@") && !b.startsWith("-") && !b.startsWith("`") && b.length > 4
+  );
+  const cleanTitle = title ? cleanSlackText(title) : "";
+
+  // 2) 본문에서 실질 내용 추출 (인사말/서명/멘션 스킵)
+  const SKIP = ["안녕하세요", "감사합니다", "고생하셨", "참고 부탁", "확인 부탁",
+    "내부리뷰 일정", "공유드립니다", "공유 드립니다", "스레드 입니다", "원분들"];
+  const bodyLines = text
+    .split("\n")
+    .map((l) => cleanSlackText(l))           // &gt; 등 먼저 정리
+    .map((l) => l.replace(/^[>\-\s]+/, "").trim())  // 인용부호/접두사 제거
+    .filter(
+      (l) =>
+        l.length > 15 &&
+        !SKIP.some((s) => l.startsWith(s)) &&
+        !(cleanTitle && (l.includes(cleanTitle) || cleanTitle.includes(l)))
+    );
+  const body = bodyLines[0] || "";
+
+  // 3) 결합: 제목 — 본문
+  if (cleanTitle && body) {
+    return `${cleanTitle} — ${body}`.slice(0, 150);
+  }
+  return (cleanTitle || body || cleanSlackText(text)).slice(0, 120);
 }
 
 export async function fetchSlackData(): Promise<SlackData> {
@@ -91,8 +126,9 @@ export async function fetchSlackData(): Promise<SlackData> {
         });
         for (const msg of messages as { ts: string; text: string; user?: string; subtype?: string }[]) {
           if (!msg.text || msg.subtype) continue;
+          if (isNoise(msg.text)) continue;
           const summary = extractSummary(msg.text);
-          if (summary.length < 5) continue; // 의미 없는 메시지 스킵
+          if (summary.length < 5) continue;
           results.push({
             ts: msg.ts,
             text: msg.text.slice(0, 300),
