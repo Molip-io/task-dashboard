@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/briefing/deliver",
+      "schedule": "0 0 * * 1"
+    }
+  ]
+}
