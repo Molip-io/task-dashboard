@@ -2,21 +2,16 @@
 
 import { useState, useMemo } from "react";
 import type { WorkItem } from "@/lib/notion";
+import type { SlackData } from "@/lib/slack";
+import type { ReconciliationResult } from "@/lib/reconciliation";
+import { matchChannelToProject } from "@/lib/reconciliation";
+import { isDone, isInProgress } from "@/lib/status";
+import SlackDigest from "@/components/SlackDigest";
 
 interface Props {
   items: WorkItem[];
-}
-
-function isDone(status: string): boolean {
-  return ["완료", "done", "complete", "finished", "closed", "종료"].some((k) =>
-    status.toLowerCase().includes(k.toLowerCase())
-  );
-}
-
-function isInProgress(status: string): boolean {
-  return ["진행", "in progress", "doing", "작업중", "작업 중"].some((k) =>
-    status.toLowerCase().includes(k.toLowerCase())
-  );
+  reconciliation?: ReconciliationResult[];
+  slack?: SlackData | null;
 }
 
 interface ProjectSummary {
@@ -30,8 +25,38 @@ interface ProjectSummary {
   items: WorkItem[];
 }
 
-export default function ProjectView({ items }: Props) {
+export default function ProjectView({ items, reconciliation, slack }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Count conflicts per project
+  const conflictsByProject = useMemo(() => {
+    if (!reconciliation) return new Map<string, number>();
+    const map = new Map<string, number>();
+    for (const r of reconciliation) {
+      if (r.conflict) {
+        const project = r.item.project || "미분류";
+        map.set(project, (map.get(project) || 0) + 1);
+      }
+    }
+    return map;
+  }, [reconciliation]);
+
+  // Group slack messages by project
+  const slackByProject = useMemo(() => {
+    type MsgArray = SlackData["messages"];
+    if (!slack || slack.messages.length === 0) return new Map<string, MsgArray>();
+    const projectNames = [...new Set(items.map((i) => i.project).filter(Boolean))];
+    const map = new Map<string, MsgArray>();
+    for (const msg of slack.messages) {
+      const project = matchChannelToProject(msg.channelName, projectNames);
+      if (project) {
+        const arr = map.get(project) || [];
+        arr.push(msg);
+        map.set(project, arr);
+      }
+    }
+    return map;
+  }, [slack, items]);
 
   const projects = useMemo((): ProjectSummary[] => {
     const map = new Map<string, WorkItem[]>();
@@ -80,7 +105,14 @@ export default function ProjectView({ items }: Props) {
             {/* Card Header */}
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-gray-900">{p.name}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold text-gray-900">{p.name}</h3>
+                  {(conflictsByProject.get(p.name) ?? 0) > 0 && (
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                      주의 {conflictsByProject.get(p.name)}
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-gray-400">{p.total}건</span>
               </div>
 
@@ -172,6 +204,11 @@ export default function ProjectView({ items }: Props) {
                       )}
                     </ul>
                   </div>
+                )}
+
+                {/* Mini Slack digest */}
+                {(slackByProject.get(p.name)?.length ?? 0) > 0 && (
+                  <SlackDigest msgs={slackByProject.get(p.name)!.slice(0, 3)} />
                 )}
               </div>
             )}

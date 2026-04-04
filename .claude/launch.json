@@ -15,8 +15,9 @@
     },
     {
       "name": "team-dashboard",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd /Users/molip/claudecode/test/team-dashboard && npm run dev -- -p 3001"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "cwd": "team-dashboard",
       "port": 3001
     }
   ]

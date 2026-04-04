@@ -1,6 +1,11 @@
 const SLACK_TOKEN = process.env.SLACK_BOT_TOKEN || "";
 const SLACK_API = "https://slack.com/api";
 
+// Slack users.list 24시간 서버 캐시
+let cachedUsers: Map<string, string> | null = null;
+let cachedUsersExpiry = 0;
+const USERS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
 export type SlackCategory = "schedule" | "action" | "issue" | "update";
 
 export interface SlackMessage {
@@ -15,6 +20,7 @@ export interface SlackMessage {
 
 export interface SlackData {
   messages: SlackMessage[];
+  users: Map<string, string>;  // userId → display_name
   lastUpdated: string;
 }
 
@@ -104,8 +110,41 @@ function extractSummary(text: string): string {
   return (cleanTitle || body || cleanSlackText(text)).slice(0, 120);
 }
 
+export async function fetchSlackUsers(): Promise<Map<string, string>> {
+  if (cachedUsers && Date.now() < cachedUsersExpiry) {
+    return cachedUsers;
+  }
+
+  const userMap = new Map<string, string>();
+  if (!SLACK_TOKEN) return userMap;
+
+  try {
+    let cursor: string | undefined;
+    do {
+      const params: Record<string, string> = { limit: "200" };
+      if (cursor) params.cursor = cursor;
+      const data = await slackFetch("users.list", params);
+      for (const member of data.members ?? []) {
+        if (member.deleted || member.is_bot) continue;
+        const name = member.profile?.display_name || member.profile?.real_name || member.name || "";
+        if (name) userMap.set(member.id, name);
+      }
+      cursor = data.response_metadata?.next_cursor;
+    } while (cursor);
+
+    cachedUsers = userMap;
+    cachedUsersExpiry = Date.now() + USERS_CACHE_TTL;
+  } catch (e) {
+    console.error("Slack users.list error:", e);
+    // Return stale cache if available, otherwise empty
+    if (cachedUsers) return cachedUsers;
+  }
+
+  return userMap;
+}
+
 export async function fetchSlackData(): Promise<SlackData> {
-  if (!SLACK_TOKEN) return { messages: [], lastUpdated: new Date().toISOString() };
+  if (!SLACK_TOKEN) return { messages: [], users: new Map(), lastUpdated: new Date().toISOString() };
 
   try {
     // 봇이 가입된 채널만 조회 (비공개 채널 포함)
@@ -115,6 +154,7 @@ export async function fetchSlackData(): Promise<SlackData> {
     });
 
     const oldest = String(Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60);
+    const usersPromise = fetchSlackUsers();
     const results: SlackMessage[] = [];
 
     await Promise.allSettled(
@@ -142,10 +182,11 @@ export async function fetchSlackData(): Promise<SlackData> {
       })
     );
 
+    const users = await usersPromise;
     results.sort((a, b) => Number(b.ts) - Number(a.ts));
-    return { messages: results.slice(0, 100), lastUpdated: new Date().toISOString() };
+    return { messages: results.slice(0, 100), users, lastUpdated: new Date().toISOString() };
   } catch (e) {
     console.error("Slack fetch error:", e);
-    return { messages: [], lastUpdated: new Date().toISOString() };
+    return { messages: [], users: new Map(), lastUpdated: new Date().toISOString() };
   }
 }
