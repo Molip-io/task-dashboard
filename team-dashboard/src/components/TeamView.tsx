@@ -35,8 +35,10 @@ export default function TeamView({ items, alerts }: Props) {
   const alertsByAssignee = useMemo(() => {
     const map = new Map<string, number>();
     for (const a of alerts) {
-      const name = a.item.assignee;
-      map.set(name, (map.get(name) || 0) + 1);
+      const names = (a.item.assignee || "").split(",").map((s) => s.trim()).filter(Boolean);
+      for (const name of names) {
+        map.set(name, (map.get(name) || 0) + 1);
+      }
     }
     return map;
   }, [alerts]);
@@ -54,11 +56,17 @@ export default function TeamView({ items, alerts }: Props) {
     const byTeam = new Map<string, Map<string, WorkItem[]>>();
     for (const item of items) {
       const team = item.team || "미분류";
-      const assignee = item.assignee || "미지정";
-      if (!byTeam.has(team)) byTeam.set(team, new Map());
-      const members = byTeam.get(team)!;
-      if (!members.has(assignee)) members.set(assignee, []);
-      members.get(assignee)!.push(item);
+      // Split comma-separated assignees into individual entries
+      const names = (item.assignee || "미지정")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s);
+      for (const assignee of names) {
+        if (!byTeam.has(team)) byTeam.set(team, new Map());
+        const members = byTeam.get(team)!;
+        if (!members.has(assignee)) members.set(assignee, []);
+        members.get(assignee)!.push(item);
+      }
     }
 
     return Array.from(byTeam.entries())
