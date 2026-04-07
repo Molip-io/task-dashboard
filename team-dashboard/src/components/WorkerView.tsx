@@ -38,18 +38,28 @@ export default function WorkerView({ items, alerts }: Props) {
     const teamByWorker = new Map<string, string>();
 
     for (const item of items) {
-      const name = item.assignee || "미지정";
-      if (name === "미지정") continue;
-      if (!byWorker.has(name)) byWorker.set(name, []);
-      byWorker.get(name)!.push(item);
-      if (!teamByWorker.has(name)) teamByWorker.set(name, item.team || "미분류");
+      // Split comma-separated assignees into individual entries
+      const names = (item.assignee || "미지정")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s && s !== "미지정");
+      for (const name of names) {
+        if (!byWorker.has(name)) byWorker.set(name, []);
+        byWorker.get(name)!.push(item);
+        if (!teamByWorker.has(name)) teamByWorker.set(name, item.team || "미분류");
+      }
     }
 
     const alertsByWorker = new Map<string, Alert[]>();
     for (const a of alerts) {
-      const name = a.item.assignee;
-      if (!alertsByWorker.has(name)) alertsByWorker.set(name, []);
-      alertsByWorker.get(name)!.push(a);
+      const names = (a.item.assignee || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const name of names) {
+        if (!alertsByWorker.has(name)) alertsByWorker.set(name, []);
+        alertsByWorker.get(name)!.push(a);
+      }
     }
 
     return Array.from(byWorker.entries())

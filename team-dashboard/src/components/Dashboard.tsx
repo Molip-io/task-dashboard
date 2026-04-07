@@ -5,7 +5,6 @@ import type { DashboardData } from "@/lib/notion";
 import type { SlackData } from "@/lib/slack";
 import type { ReconciliationResult } from "@/lib/reconciliation";
 import type { Alert } from "@/lib/bottlenecks";
-import { isDone } from "@/lib/status";
 import SummaryCards from "./SummaryCards";
 import AttentionRouter from "./AttentionRouter";
 import ProjectView from "./ProjectView";
@@ -27,7 +26,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<DashboardMode>("overview");
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [projectFilter, setProjectFilter] = useState<string>("전체");
 
   useEffect(() => {
     fetch("/api/dashboard")
@@ -52,16 +51,21 @@ export default function Dashboard() {
     return age > 2 * 60 * 60 * 1000; // 2 hours
   }, [data]);
 
-  // Global filter: exclude completed items
+  // Global project filter
   const filteredItems = useMemo(() => {
     if (!data) return [];
-    return showCompleted ? data.items : data.items.filter((i) => !isDone(i.status));
-  }, [data, showCompleted]);
+    return projectFilter === "전체" ? data.items : data.items.filter((i) => i.project === projectFilter);
+  }, [data, projectFilter]);
 
   const filteredAlerts = useMemo(() => {
     if (!data) return [];
-    return showCompleted ? data.alerts : data.alerts.filter((a) => !isDone(a.item.status));
-  }, [data, showCompleted]);
+    return projectFilter === "전체" ? data.alerts : data.alerts.filter((a) => a.item.project === projectFilter);
+  }, [data, projectFilter]);
+
+  const filteredReconciliation = useMemo(() => {
+    if (!data) return [];
+    return projectFilter === "전체" ? data.reconciliation : data.reconciliation.filter((r) => r.item.project === projectFilter);
+  }, [data, projectFilter]);
 
   if (loading) {
     return (
@@ -129,19 +133,21 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 글로벌 필터 */}
+      {/* 프로젝트 필터 */}
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          완료 항목 포함
-        </label>
+        <span className="text-sm text-gray-500">프로젝트:</span>
+        <select
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        >
+          <option value="전체">전체</option>
+          {data.projects.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
         <span className="text-xs text-gray-400">
-          {filteredItems.length}건 표시 중{!showCompleted && data.items.length > filteredItems.length && ` (완료 ${data.items.length - filteredItems.length}건 숨김)`}
+          {filteredItems.length}건 표시 중
         </span>
       </div>
 
@@ -165,7 +171,7 @@ export default function Dashboard() {
       {mode === "project" && (
         <ProjectView
           items={filteredItems}
-          reconciliation={data.reconciliation}
+          reconciliation={filteredReconciliation}
           slack={data.slack}
           alerts={filteredAlerts}
         />
@@ -183,7 +189,7 @@ export default function Dashboard() {
         <BriefingView
           items={filteredItems}
           slack={data.slack}
-          reconciliation={data.reconciliation}
+          reconciliation={filteredReconciliation}
         />
       )}
 
