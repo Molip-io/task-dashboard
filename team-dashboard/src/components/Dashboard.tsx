@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo } from "react";
 import type { DashboardData, WorkItem } from "@/lib/notion";
 import type { SlackData } from "@/lib/slack";
 import type { ReconciliationResult } from "@/lib/reconciliation";
+import type { Alert } from "@/lib/bottlenecks";
 import SummaryCards from "./SummaryCards";
+import AttentionRouter from "./AttentionRouter";
 import WorkTable from "./WorkTable";
 import ProjectView from "./ProjectView";
 import BriefingView from "./BriefingView";
@@ -16,6 +18,7 @@ interface ApiResponse extends DashboardData {
   slack: SlackData | null;
   reconciliation: ReconciliationResult[];
   warnings: string[];
+  alerts: Alert[];
 }
 
 export default function Dashboard() {
@@ -222,6 +225,9 @@ export default function Dashboard() {
 
           {/* 요약 카드 */}
           <SummaryCards items={filteredItems} />
+
+          {/* 병목 경고 + 팀 히트맵 + 주간 다이제스트 */}
+          <AttentionRouter items={filteredItems} alerts={data.alerts} slack={data.slack ?? undefined} />
 
           {/* 필터 바 */}
           <div className="flex flex-wrap items-center gap-2">

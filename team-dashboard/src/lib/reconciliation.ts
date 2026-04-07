@@ -1,6 +1,6 @@
 import type { WorkItem } from "@/lib/notion";
 import type { SlackCategory, SlackMessage, SlackData } from "@/lib/slack";
-import { isDone, isInProgress, isOverdue } from "@/lib/status";
+import { isDone, isInProgress, isOverdue, isPaused } from "@/lib/status";
 
 export interface SlackSignal {
   summary: string;
@@ -183,14 +183,15 @@ export function reconcile(items: WorkItem[], slack: SlackData): ReconciliationRe
     const conflict = taskConflicts.get(item.id);
     const signals = taskSignals.get(item.id) || [];
 
-    // Overdue check
-    if (!conflict && isOverdue(item.dueDate) && !isDone(item.status)) {
+    // Overdue check — 일시 정지 항목은 의도적 보류이므로 제외
+    if (!conflict && isOverdue(item.dueDate) && !isDone(item.status) && !isPaused(item.status)) {
+      const active = isInProgress(item.status);
       return {
         item,
         conflict: true,
-        conflictReason: "마감일 초과",
+        conflictReason: active ? "마감일 초과" : `마감일 초과 (${item.status})`,
         slackSignals: signals,
-        confidence: "high" as const,
+        confidence: active ? "high" as const : "medium" as const,
       };
     }
 
