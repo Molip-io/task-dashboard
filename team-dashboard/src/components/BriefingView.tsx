@@ -15,6 +15,27 @@ interface Props {
 
 export default function BriefingView({ items, slack, reconciliation }: Props) {
   const [onTrackExpanded, setOnTrackExpanded] = useState(false);
+  const [projectFilter, setProjectFilter] = useState<string>("전체");
+
+  // Project list for filter dropdown
+  const projectList = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of items) {
+      if (item.project) set.add(item.project);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [items]);
+
+  // Apply project filter
+  const filtered = useMemo(
+    () => projectFilter === "전체" ? items : items.filter((i) => i.project === projectFilter),
+    [items, projectFilter],
+  );
+
+  const filteredReconciliation = useMemo(
+    () => projectFilter === "전체" ? reconciliation : reconciliation.filter((r) => r.item.project === projectFilter),
+    [reconciliation, projectFilter],
+  );
 
   // Feedback persistence
   const saveFeedback = (itemId: string, vote: "up" | "down") => {
@@ -27,10 +48,10 @@ export default function BriefingView({ items, slack, reconciliation }: Props) {
   // 주의 필요: conflict items sorted by confidence
   const conflicts = useMemo(() => {
     const confOrder = { high: 0, medium: 1, low: 2 };
-    return reconciliation
+    return filteredReconciliation
       .filter((r) => r.conflict)
       .sort((a, b) => confOrder[a.confidence] - confOrder[b.confidence]);
-  }, [reconciliation]);
+  }, [filteredReconciliation]);
 
   // 순항 중: in progress and NOT in conflict
   const conflictIds = useMemo(
@@ -39,8 +60,8 @@ export default function BriefingView({ items, slack, reconciliation }: Props) {
   );
 
   const onTrack = useMemo(
-    () => items.filter((i) => isInProgress(i.status) && !conflictIds.has(i.id)),
-    [items, conflictIds],
+    () => filtered.filter((i) => isInProgress(i.status) && !conflictIds.has(i.id)),
+    [filtered, conflictIds],
   );
 
   const onTrackByProject = useMemo(() => {
@@ -55,8 +76,8 @@ export default function BriefingView({ items, slack, reconciliation }: Props) {
 
   // 이번 주 완료
   const doneItems = useMemo(
-    () => items.filter((i) => isDone(i.status)),
-    [items],
+    () => filtered.filter((i) => isDone(i.status)),
+    [filtered],
   );
 
   const doneByProject = useMemo(() => {
@@ -70,6 +91,23 @@ export default function BriefingView({ items, slack, reconciliation }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* 프로젝트 필터 */}
+      {projectList.length > 1 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">프로젝트:</span>
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="전체">전체</option>
+            {projectList.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* 주의 필요 */}
       {conflicts.length > 0 && (
         <div className="bg-white rounded-xl border overflow-hidden">
