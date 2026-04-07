@@ -21,3 +21,25 @@ export function isDone(status: string): boolean {
   const keywords = ["완료", "done", "complete", "finished", "closed", "종료"];
   return keywords.some((k) => status.toLowerCase().includes(k.toLowerCase()));
 }
+
+export function isPaused(status: string): boolean {
+  return status.includes("정지") || status.includes("pause");
+}
+
+export function isReviewPending(status: string): boolean {
+  return status.includes("확인") || status.includes("review");
+}
+
+export function isHighPriority(priority: string): boolean {
+  return priority.includes("0순위") || priority.includes("긴급") || priority.includes("Urgent");
+}
+
+export function daysBetween(dateStr: string, now: Date = new Date()): number {
+  const d = new Date(dateStr);
+  return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function formatShortDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}

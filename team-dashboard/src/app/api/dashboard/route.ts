@@ -1,6 +1,7 @@
 import { fetchDashboardData } from "@/lib/notion";
 import { fetchSlackData } from "@/lib/slack";
 import { reconcile } from "@/lib/reconciliation";
+import { detectBottlenecks } from "@/lib/bottlenecks";
 
 export const revalidate = 60;
 
@@ -45,11 +46,13 @@ export async function GET() {
   const reconciliation = slackData
     ? reconcile(notionData.items, slackData)
     : [];
+  const alerts = detectBottlenecks(notionData.items, slackData?.messages || []);
 
   return Response.json({
     ...notionData,
     slack: slackData ?? null,
     reconciliation,
     warnings,
+    alerts,
   });
 }
