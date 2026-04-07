@@ -5,9 +5,10 @@ import { isDone, isInProgress, isOverdue, isUrgent } from "@/lib/status";
 
 interface Props {
   items: WorkItem[];
+  alertCount?: number;
 }
 
-export default function SummaryCards({ items }: Props) {
+export default function SummaryCards({ items, alertCount }: Props) {
   const total = items.length;
   const done = items.filter((i) => isDone(i.status)).length;
   const inProgress = items.filter((i) => isInProgress(i.status)).length;
@@ -20,6 +21,7 @@ export default function SummaryCards({ items }: Props) {
     { label: "완료", value: done, color: "bg-gray-50 text-gray-600 border-gray-200" },
     { label: "긴급/임박", value: urgent, color: "bg-amber-50 text-amber-700 border-amber-200" },
     { label: "기한 초과", value: overdue, color: "bg-red-50 text-red-700 border-red-200" },
+    ...(alertCount !== undefined ? [{ label: "병목 경고", value: alertCount, color: "bg-orange-50 text-orange-700 border-orange-200" }] : []),
   ];
 
   return (

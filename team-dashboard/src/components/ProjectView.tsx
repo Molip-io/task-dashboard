@@ -5,6 +5,7 @@ import type { WorkItem } from "@/lib/notion";
 import type { SlackData } from "@/lib/slack";
 import type { ReconciliationResult } from "@/lib/reconciliation";
 import { matchChannelToProject } from "@/lib/reconciliation";
+import type { Alert } from "@/lib/bottlenecks";
 import { isDone, isInProgress } from "@/lib/status";
 import SlackDigest from "@/components/SlackDigest";
 
@@ -12,6 +13,7 @@ interface Props {
   items: WorkItem[];
   reconciliation?: ReconciliationResult[];
   slack?: SlackData | null;
+  alerts?: Alert[];
 }
 
 interface ProjectSummary {
@@ -25,7 +27,7 @@ interface ProjectSummary {
   items: WorkItem[];
 }
 
-export default function ProjectView({ items, reconciliation, slack }: Props) {
+export default function ProjectView({ items, reconciliation, slack, alerts }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Count conflicts per project
@@ -40,6 +42,17 @@ export default function ProjectView({ items, reconciliation, slack }: Props) {
     }
     return map;
   }, [reconciliation]);
+
+  // Count alerts per project for status lights
+  const alertsByProject = useMemo(() => {
+    if (!alerts) return new Map<string, number>();
+    const map = new Map<string, number>();
+    for (const a of alerts) {
+      const project = a.item.project || "미분류";
+      map.set(project, (map.get(project) || 0) + 1);
+    }
+    return map;
+  }, [alerts]);
 
   // Group slack messages by project
   const slackByProject = useMemo(() => {
@@ -106,6 +119,13 @@ export default function ProjectView({ items, reconciliation, slack }: Props) {
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
+                  {/* Status light: 🔴 alerts≥3, 🟡 alerts≥1, 🟢 0 */}
+                  {(() => {
+                    const ac = alertsByProject.get(p.name) ?? 0;
+                    if (ac >= 3) return <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" title={`병목 ${ac}건`} />;
+                    if (ac >= 1) return <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" title={`병목 ${ac}건`} />;
+                    return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="병목 없음" />;
+                  })()}
                   <h3 className="text-base font-semibold text-gray-900">{p.name}</h3>
                   {(conflictsByProject.get(p.name) ?? 0) > 0 && (
                     <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">

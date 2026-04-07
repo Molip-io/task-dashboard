@@ -1,18 +1,19 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import type { DashboardData, WorkItem } from "@/lib/notion";
+import type { DashboardData } from "@/lib/notion";
 import type { SlackData } from "@/lib/slack";
 import type { ReconciliationResult } from "@/lib/reconciliation";
 import type { Alert } from "@/lib/bottlenecks";
+import { isDone } from "@/lib/status";
 import SummaryCards from "./SummaryCards";
 import AttentionRouter from "./AttentionRouter";
-import WorkTable from "./WorkTable";
 import ProjectView from "./ProjectView";
+import TeamView from "./TeamView";
+import WorkerView from "./WorkerView";
 import BriefingView from "./BriefingView";
 
-type DashboardMode = "status" | "briefing";
-type FilterType = "team" | "project" | "assignee";
+type DashboardMode = "overview" | "project" | "team" | "worker" | "briefing";
 
 interface ApiResponse extends DashboardData {
   slack: SlackData | null;
@@ -25,10 +26,8 @@ export default function Dashboard() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<DashboardMode>("status");
-  const [filterType, setFilterType] = useState<FilterType>("team");
-  const [filterValue, setFilterValue] = useState<string>("전체");
-  const [globalSearch, setGlobalSearch] = useState("");
+  const [mode, setMode] = useState<DashboardMode>("overview");
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     fetch("/api/dashboard")
@@ -46,83 +45,23 @@ export default function Dashboard() {
       });
   }, []);
 
-  const filterOptions = useMemo(() => {
-    if (!data) return [];
-    switch (filterType) {
-      case "team":
-        return data.teams;
-      case "project":
-        return data.projects;
-      case "assignee":
-        return data.assignees;
-    }
-  }, [data, filterType]);
-
-  const filteredItems = useMemo((): WorkItem[] => {
-    if (!data) return [];
-    if (filterValue === "전체") return data.items;
-    return data.items.filter((item) => {
-      switch (filterType) {
-        case "team":
-          return item.team === filterValue;
-        case "project":
-          return item.project === filterValue;
-        case "assignee":
-          return item.assignee === filterValue;
-      }
-    });
-  }, [data, filterType, filterValue]);
-
-  // 주의 필요: conflict items sorted by confidence
-  const conflicts = useMemo(() => {
-    if (!data) return [];
-    const confOrder = { high: 0, medium: 1, low: 2 };
-    return data.reconciliation
-      .filter((r) => r.conflict)
-      .sort((a, b) => confOrder[a.confidence] - confOrder[b.confidence]);
-  }, [data]);
-
-  // 필터 타입 변경시 필터값 리셋
-  const handleFilterTypeChange = (ft: FilterType) => {
-    setFilterType(ft);
-    setFilterValue("전체");
-  };
-
-  // 글로벌 검색: 프로젝트명 매칭 시 프로젝트 필터로 자동 이동
-  const handleGlobalSearch = (query: string) => {
-    setGlobalSearch(query);
-    if (!data || !query) return;
-
-    const q = query.toLowerCase();
-    const matchedProject = data.projects.find((p) => p.toLowerCase().includes(q));
-    if (matchedProject) {
-      setFilterType("project");
-      setFilterValue(matchedProject);
-      return;
-    }
-    const matchedTeam = data.teams.find((t) => t.toLowerCase().includes(q));
-    if (matchedTeam) {
-      setFilterType("team");
-      setFilterValue(matchedTeam);
-      return;
-    }
-    setFilterValue("전체");
-  };
-
-  // Feedback persistence
-  const saveFeedback = (itemId: string, vote: "up" | "down") => {
-    const key = "reconciliation-feedback";
-    const stored = JSON.parse(localStorage.getItem(key) || "{}");
-    stored[itemId] = { vote, ts: Date.now() };
-    localStorage.setItem(key, JSON.stringify(stored));
-  };
-
   // Data age check
   const dataAgeWarning = useMemo(() => {
     if (!data) return false;
     const age = Date.now() - new Date(data.lastUpdated).getTime();
     return age > 2 * 60 * 60 * 1000; // 2 hours
   }, [data]);
+
+  // Global filter: exclude completed items
+  const filteredItems = useMemo(() => {
+    if (!data) return [];
+    return showCompleted ? data.items : data.items.filter((i) => !isDone(i.status));
+  }, [data, showCompleted]);
+
+  const filteredAlerts = useMemo(() => {
+    if (!data) return [];
+    return showCompleted ? data.alerts : data.alerts.filter((a) => !isDone(a.item.status));
+  }, [data, showCompleted]);
 
   if (loading) {
     return (
@@ -158,35 +97,52 @@ export default function Dashboard() {
     );
   }
 
+  const tabs: { key: DashboardMode; label: string }[] = [
+    { key: "overview", label: "현황 개요" },
+    { key: "project", label: "프로젝트별" },
+    { key: "team", label: "팀별" },
+    { key: "worker", label: "작업자별" },
+    { key: "briefing", label: "주간 브리핑" },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* 모드 토글 */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setMode("status")}
-          className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-            mode === "status"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          }`}
-        >
-          현황판
-        </button>
-        <button
-          onClick={() => setMode("briefing")}
-          className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-            mode === "briefing"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          }`}
-        >
-          주간 브리핑
-        </button>
+      {/* 5탭 네비게이션 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setMode(tab.key)}
+            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              mode === tab.key
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
         {(!data.slack || data.slack.messages.length === 0) && (
-          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded ml-auto">
             슬랙 미연결
           </span>
         )}
+      </div>
+
+      {/* 글로벌 필터 */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showCompleted}
+            onChange={(e) => setShowCompleted(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          완료 항목 포함
+        </label>
+        <span className="text-xs text-gray-400">
+          {filteredItems.length}건 표시 중{!showCompleted && data.items.length > filteredItems.length && ` (완료 ${data.items.length - filteredItems.length}건 숨김)`}
+        </span>
       </div>
 
       {/* 경고 배너 */}
@@ -198,121 +154,34 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 모드별 콘텐츠 */}
-      {mode === "status" ? (
+      {/* 탭별 콘텐츠 */}
+      {mode === "overview" && (
         <div className="space-y-6">
-          {/* 글로벌 검색 */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="프로젝트, 팀, 담당자 검색... (예: 피자레디)"
-              value={globalSearch}
-              onChange={(e) => handleGlobalSearch(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm"
-            />
-            {globalSearch && (
-              <button
-                onClick={() => {
-                  setGlobalSearch("");
-                  setFilterValue("전체");
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {/* 요약 카드 */}
-          <SummaryCards items={filteredItems} />
-
-          {/* 병목 경고 + 팀 히트맵 + 주간 다이제스트 */}
-          <AttentionRouter items={filteredItems} alerts={data.alerts} slack={data.slack ?? undefined} />
-
-          {/* 필터 바 */}
-          <div className="flex flex-wrap items-center gap-2">
-            {(["team", "project", "assignee"] as const).map((ft) => {
-              const label = ft === "team" ? "팀별" : ft === "project" ? "프로젝트별" : "담당자별";
-              return (
-                <button
-                  key={ft}
-                  onClick={() => handleFilterTypeChange(ft)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    filterType === ft
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-
-            {/* 필터 드롭다운 (프로젝트 전체 뷰에서는 숨김) */}
-            {!(filterType === "project" && filterValue === "전체") && (
-              <select
-                value={filterValue}
-                onChange={(e) => setFilterValue(e.target.value)}
-                className="ml-2 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="전체">전체</option>
-                {filterOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* 주의 필요 */}
-          {conflicts.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-red-700">주의 필요 ({conflicts.length})</h3>
-              {conflicts.slice(0, 5).map((r) => (
-                <div key={r.item.id} className="flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <a href={r.item.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-red-800 hover:underline">
-                      {r.item.title}
-                    </a>
-                    <div className="text-xs text-red-600 mt-0.5">
-                      {r.item.project} · {r.item.assignee} · {r.conflictReason}
-                    </div>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ml-2 ${
-                    r.confidence === "high" ? "bg-red-200 text-red-800" :
-                    r.confidence === "medium" ? "bg-amber-200 text-amber-800" :
-                    "bg-gray-200 text-gray-600"
-                  }`}>
-                    {r.confidence}
-                  </span>
-                  <div className="flex gap-1 shrink-0 ml-2">
-                    <button
-                      onClick={(e) => { e.preventDefault(); saveFeedback(r.item.id, "up"); }}
-                      className="text-xs px-1.5 py-0.5 rounded hover:bg-green-100"
-                      title="정확한 감지"
-                    >👍</button>
-                    <button
-                      onClick={(e) => { e.preventDefault(); saveFeedback(r.item.id, "down"); }}
-                      className="text-xs px-1.5 py-0.5 rounded hover:bg-red-100"
-                      title="오탐"
-                    >👎</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* 작업 테이블 / 프로젝트 뷰 */}
-          {filterType === "project" && filterValue === "전체" ? (
-            <ProjectView items={filteredItems} reconciliation={data.reconciliation} slack={data.slack} />
-          ) : (
-            <WorkTable items={filteredItems} />
-          )}
+          <SummaryCards items={filteredItems} alertCount={filteredAlerts.length} />
+          <AttentionRouter items={filteredItems} alerts={filteredAlerts} slack={data.slack ?? undefined} />
         </div>
-      ) : (
+      )}
+
+      {mode === "project" && (
+        <ProjectView
+          items={filteredItems}
+          reconciliation={data.reconciliation}
+          slack={data.slack}
+          alerts={filteredAlerts}
+        />
+      )}
+
+      {mode === "team" && (
+        <TeamView items={filteredItems} alerts={filteredAlerts} />
+      )}
+
+      {mode === "worker" && (
+        <WorkerView items={filteredItems} alerts={filteredAlerts} />
+      )}
+
+      {mode === "briefing" && (
         <BriefingView
-          items={data.items}
+          items={filteredItems}
           slack={data.slack}
           reconciliation={data.reconciliation}
         />

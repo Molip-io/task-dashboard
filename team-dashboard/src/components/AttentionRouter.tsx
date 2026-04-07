@@ -29,7 +29,9 @@ const RULE_LABELS: Record<string, string> = {
   long_paused: "일시정지 장기화",
 };
 
-function BottleneckAlerts({ alerts }: { alerts: Alert[] }) {
+export function BottleneckAlerts({ alerts }: { alerts: Alert[] }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (alerts.length === 0) {
     return (
       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
@@ -38,9 +40,30 @@ function BottleneckAlerts({ alerts }: { alerts: Alert[] }) {
     );
   }
 
+  const groupCounts = SEVERITY_GROUPS.map((group, idx) => {
+    const upper = idx > 0 ? SEVERITY_GROUPS[idx - 1].min : Infinity;
+    return { ...group, count: alerts.filter((a) => a.severity >= group.min && a.severity < upper).length };
+  }).filter((g) => g.count > 0);
+
   return (
     <div className="space-y-4">
-      {SEVERITY_GROUPS.map((group, idx) => {
+      {/* Summary bar — always visible */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full rounded-xl border bg-white px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-4">
+          {groupCounts.map((g) => (
+            <span key={g.label} className={`text-sm font-medium ${g.text}`}>
+              {g.label} {g.count}건
+            </span>
+          ))}
+        </div>
+        <span className="text-xs text-gray-400">{expanded ? "▼ 접기" : "▶ 상세 보기"}</span>
+      </button>
+
+      {/* Detail list — collapsed by default */}
+      {expanded && SEVERITY_GROUPS.map((group, idx) => {
         const upper = idx > 0 ? SEVERITY_GROUPS[idx - 1].min : Infinity;
         const groupAlerts = alerts.filter((a) => a.severity >= group.min && a.severity < upper);
         if (groupAlerts.length === 0) return null;
@@ -95,7 +118,7 @@ interface TeamMember {
   items: WorkItem[];
 }
 
-function TeamHeatmap({ items, alerts }: { items: WorkItem[]; alerts: Alert[] }) {
+export function TeamHeatmap({ items, alerts }: { items: WorkItem[]; alerts: Alert[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const teamData = useMemo(() => {
@@ -207,7 +230,7 @@ const CATEGORY_CONFIG: Record<SlackCategory, { label: string; icon: string; colo
   update: { label: "현황", icon: "📋", color: "text-blue-700" },
 };
 
-function WeeklyDigest({ items, slack }: { items: WorkItem[]; slack?: SlackData }) {
+export function WeeklyDigest({ items, slack }: { items: WorkItem[]; slack?: SlackData }) {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
