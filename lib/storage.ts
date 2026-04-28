@@ -51,7 +51,14 @@ export async function saveRun(payload: WorkStatusPayload): Promise<StoredRun> {
     .select()
     .single();
 
-  if (error) throw new Error(`Supabase insert failed: ${error.message}`);
+  if (error) {
+    // Table not created yet — degrade gracefully in production
+    if (error.code === "42P01") {
+      console.error("[storage] Table 'work_status_runs' does not exist. Run supabase-schema.sql first.");
+      throw new Error("Supabase table not found. Please run supabase-schema.sql.");
+    }
+    throw new Error(`Supabase insert failed: ${error.message}`);
+  }
   return data as StoredRun;
 }
 
@@ -70,6 +77,13 @@ export async function getLatestRun(): Promise<StoredRun | null> {
     .limit(1)
     .maybeSingle();
 
-  if (error) throw new Error(`Supabase select failed: ${error.message}`);
+  if (error) {
+    // Table not created yet — return null so UI shows empty state instead of 500
+    if (error.code === "42P01") {
+      console.error("[storage] Table 'work_status_runs' does not exist. Run supabase-schema.sql first.");
+      return null;
+    }
+    throw new Error(`Supabase select failed: ${error.message}`);
+  }
   return data as StoredRun | null;
 }
