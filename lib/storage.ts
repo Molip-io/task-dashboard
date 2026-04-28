@@ -20,6 +20,17 @@ function getLatestFromMemory(): StoredRun | null {
   return memoryStore;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+// Supabase PostgREST returns "Could not find the table" when table is absent.
+// Postgres native code 42P01 may also appear wrapped differently.
+function isTableMissing(error: { code?: string; message?: string }): boolean {
+  return (
+    error.code === "42P01" ||
+    (error.message?.includes("Could not find the table") ?? false) ||
+    (error.message?.includes("does not exist") ?? false)
+  );
+}
+
 // ── Supabase ─────────────────────────────────────────────────────────────────
 // Lazily import to avoid errors when env vars are absent
 async function getSupabaseClient() {
@@ -52,10 +63,8 @@ export async function saveRun(payload: WorkStatusPayload): Promise<StoredRun> {
     .single();
 
   if (error) {
-    // Table not created yet — degrade gracefully in production
-    if (error.code === "42P01") {
-      console.error("[storage] Table 'work_status_runs' does not exist. Run supabase-schema.sql first.");
-      throw new Error("Supabase table not found. Please run supabase-schema.sql.");
+    if (isTableMissing(error)) {
+      throw new Error("Supabase table not found. Please run supabase-schema.sql in your Supabase project.");
     }
     throw new Error(`Supabase insert failed: ${error.message}`);
   }
@@ -78,9 +87,9 @@ export async function getLatestRun(): Promise<StoredRun | null> {
     .maybeSingle();
 
   if (error) {
-    // Table not created yet — return null so UI shows empty state instead of 500
-    if (error.code === "42P01") {
-      console.error("[storage] Table 'work_status_runs' does not exist. Run supabase-schema.sql first.");
+    if (isTableMissing(error)) {
+      // Table not created yet — return null so UI shows empty state instead of 500
+      console.error("[storage] Table 'work_status_runs' missing. Run supabase-schema.sql first.");
       return null;
     }
     throw new Error(`Supabase select failed: ${error.message}`);
