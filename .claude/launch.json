@@ -19,6 +19,12 @@
       "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
       "cwd": "team-dashboard",
       "port": 3001
+    },
+    {
+      "name": "molip-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3002"],
+      "port": 3002
     }
   ]
 }
