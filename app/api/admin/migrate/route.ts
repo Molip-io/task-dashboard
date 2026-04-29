@@ -40,9 +40,11 @@ function getProjectRef(url: string): string | null {
 }
 
 export async function POST(req: Request) {
-  // Auth — same DASHBOARD_API_TOKEN as the data endpoint
+  // Auth — MIGRATION_TOKEN (임시 일회용 토큰)
+  const migrationToken = process.env.MIGRATION_TOKEN;
   const authHeader = req.headers.get("authorization");
-  if (!verifyBearerToken(authHeader)) {
+  const provided = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!migrationToken || provided !== migrationToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
