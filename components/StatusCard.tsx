@@ -43,7 +43,13 @@ export function StatusCard({ result }: { result: WorkStatusResult }) {
         <p className="text-sm text-gray-600 leading-relaxed">{result.summary}</p>
       )}
 
-      <ItemList label="주의 항목" items={result.attention_items} className="text-orange-600" />
+      <ItemList
+        label="주의 항목"
+        items={result.attention_items.map((a) =>
+          typeof a === "string" ? a : `${a.item}${a.why ? ` — ${a.why}` : ""}`
+        )}
+        className="text-orange-600"
+      />
       <ItemList label="병목" items={result.bottlenecks} className="text-purple-600" />
       <ItemList label="리스크" items={result.risks} className="text-red-600" />
 

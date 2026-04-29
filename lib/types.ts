@@ -26,7 +26,7 @@ export interface WorkStatusResult {
   blockers: string[];
   bottlenecks: string[];
   risks: string[];
-  attention_items: string[];
+  attention_items: Array<{ item: string; why: string } | string>;
   source_meta: SourceMeta;
   run_status: RunStatus;
 }
