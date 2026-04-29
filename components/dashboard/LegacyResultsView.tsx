@@ -1,10 +1,25 @@
 import type { WorkStatusResult } from "@/lib/types";
 import { StatusBadge, statusBorder, Section } from "./shared";
 
+// payload 필드가 string | object 혼합으로 올 수 있으므로 모두 string으로 변환
+function toStrings(items: unknown[]): string[] {
+  return items.map((a) => {
+    if (typeof a === "string") return a;
+    if (typeof a === "object" && a !== null) {
+      const o = a as Record<string, unknown>;
+      const parts = [
+        o.item ?? o.title ?? o.name,
+        o.reason ?? o.why ?? o.cause,
+        o.recommended_action ?? o.action,
+      ].filter(Boolean);
+      return parts.join(" — ");
+    }
+    return String(a);
+  });
+}
+
 function normalizeAttention(items: WorkStatusResult["attention_items"]): string[] {
-  return items.map((a) =>
-    typeof a === "string" ? a : `${a.item}${a.why ? ` — ${a.why}` : ""}`
-  );
+  return toStrings(items as unknown[]);
 }
 
 function ItemList({ label, items, cls }: { label: string; items: string[]; cls: string }) {
@@ -48,8 +63,8 @@ export function LegacyResultsView({ results }: { results: WorkStatusResult[] }) 
               <p className="text-sm text-gray-600 leading-relaxed">{r.summary}</p>
             )}
             <ItemList label="주의 항목" items={normalizeAttention(r.attention_items)} cls="text-orange-600" />
-            <ItemList label="병목"     items={r.bottlenecks}                           cls="text-purple-600" />
-            <ItemList label="리스크"   items={r.risks}                                 cls="text-red-600" />
+            <ItemList label="병목"     items={toStrings(r.bottlenecks as unknown[])}  cls="text-purple-600" />
+            <ItemList label="리스크"   items={toStrings(r.risks as unknown[])}         cls="text-red-600" />
             {(r.errors.length > 0 || r.warnings.length > 0) && (
               <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
                 {r.errors.map((e, i) => (
