@@ -144,7 +144,10 @@ export interface TaskItem {
   task_name: string;
   project?: string;
   team?: string;
+  /** 단일 문자열 (레거시) */
   owner?: string;
+  /** 복수 담당자 배열 (v2 Agent) */
+  owners?: string[];
   status?: string;
   priority?: string;
   sprint?: string;
@@ -159,7 +162,29 @@ export interface SourceMetaV2 {
   slack_channels?: string[];
   window_start?: string;
   window_end?: string;
+  lookback_days?: number;
+  retrieval_mode?: string;
+  notion_items?: number;
+  slack_messages?: number;
   generated_by?: "agent" | "manual" | "test" | string;
+}
+
+// ── Trend (run 간 비교) ───────────────────────────────────────────────────────
+export interface TrendStatusChange {
+  target: string;
+  from: string;
+  to: string;
+}
+
+export interface Trend {
+  previous_run_id?: string;
+  previous_date?: string;
+  recommended_focus?: string;
+  new_attention_items?: Array<AttentionItemV2 | string>;
+  carried_over_attention_items?: Array<AttentionItemV2 | string>;
+  resolved_attention_items?: Array<AttentionItemV2 | string>;
+  status_changes?: Array<TrendStatusChange | string>;
+  repeated_risks?: string[];
 }
 
 /** V2 payload — overview 중심 운영 판단 구조 */
@@ -174,6 +199,7 @@ export interface WorkStatusPayloadV2 {
   tasks?: TaskItem[];
   slack_signals?: SlackSignal[];
   source_meta?: SourceMetaV2;
+  trend?: Trend;
   warnings?: string[];
   errors?: string[];
 }

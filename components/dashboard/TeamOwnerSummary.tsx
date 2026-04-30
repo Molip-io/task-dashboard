@@ -22,12 +22,16 @@ export function TeamOwnerSummary({
   teams?: TeamStatus[];
   owners?: OwnerStatus[];
 }) {
-  if (!teams.length && !owners.length) return null;
-
   return (
     <>
       {/* Teams */}
-      {teams.length > 0 && (
+      {teams.length === 0 ? (
+        <Section title="팀별 현황">
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
+            <p className="text-sm text-gray-500">수집된 팀 정보가 없습니다.</p>
+          </div>
+        </Section>
+      ) : (
         <Section title="팀별 현황">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {teams.map((t, i) => (
@@ -60,7 +64,13 @@ export function TeamOwnerSummary({
       )}
 
       {/* Owners — 쏠림/지원 필요 관점 */}
-      {owners.length > 0 && (
+      {owners.length === 0 ? (
+        <Section title="담당자 현황 — 업무 쏠림 · 지원 필요">
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
+            <p className="text-sm text-gray-500">수집된 담당자 정보가 없습니다.</p>
+          </div>
+        </Section>
+      ) : (
         <Section title="담당자 현황 — 업무 쏠림 · 지원 필요">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {owners.map((o, i) => (

@@ -9,12 +9,14 @@ import type {
 
 import { DashboardHeader }     from "@/components/dashboard/DashboardHeader";
 import { WarningErrorPanel }   from "@/components/dashboard/WarningErrorPanel";
+import { SourceMetaPanel }     from "@/components/dashboard/SourceMetaPanel";
 import { OverviewMetricsGrid } from "@/components/dashboard/OverviewMetricsGrid";
 import { AttentionList }       from "@/components/dashboard/AttentionList";
 import { ProjectStatusGrid }   from "@/components/dashboard/ProjectStatusGrid";
 import { TasksTable }          from "@/components/dashboard/TasksTable";
 import { TeamOwnerSummary }    from "@/components/dashboard/TeamOwnerSummary";
 import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
+import { TrendSummary }        from "@/components/dashboard/TrendSummary";
 import { LegacyResultsView }   from "@/components/dashboard/LegacyResultsView";
 import { Section }             from "@/components/dashboard/shared";
 
@@ -170,9 +172,15 @@ export default async function HomePage() {
           errorCount={v2?.errors?.length ?? 0}
         />
 
-        {/* Warnings / Errors */}
+        {/* 오류 패널 — errors만 (warnings는 SourceMetaPanel에서 처리) */}
         <WarningErrorPanel
           errors={v2?.errors ?? (fetchError ? [fetchError] : [])}
+        />
+
+        {/* 수집 상태 / partial 안내 / warnings */}
+        <SourceMetaPanel
+          sourceMeta={v2?.source_meta}
+          runStatus={status}
           warnings={v2?.warnings}
         />
 
@@ -198,6 +206,9 @@ export default async function HomePage() {
 
             {/* 6. Slack 신호 */}
             <SlackSignalsList signals={v2.slack_signals ?? []} />
+
+            {/* 7. 지난 실행 대비 변화 */}
+            <TrendSummary trend={v2.trend} />
 
             {/* overview 요약문 (보조) */}
             {v2.overview.summary && (
