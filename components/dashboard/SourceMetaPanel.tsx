@@ -10,17 +10,19 @@ interface Props {
   sourceMeta?: SourceMetaV2;
   runStatus?: RunStatus | string;
   warnings?: string[];
+  rawTaskCount?: number;
+  agentTaskCount?: number;
+  rawTaskDbConfigured?: boolean;
 }
 
-export function SourceMetaPanel({ sourceMeta, runStatus, warnings = [] }: Props) {
-  const hasAnything =
-    sourceMeta?.lookback_days !== undefined ||
-    sourceMeta?.window_start ||
-    sourceMeta?.window_end ||
-    sourceMeta?.notion_items !== undefined ||
-    sourceMeta?.slack_messages !== undefined ||
-    sourceMeta?.retrieval_mode;
-
+export function SourceMetaPanel({
+  sourceMeta,
+  runStatus,
+  warnings = [],
+  rawTaskCount,
+  agentTaskCount,
+  rawTaskDbConfigured = false,
+}: Props) {
   const isPartial = runStatus === "partial";
 
   return (
@@ -33,7 +35,6 @@ export function SourceMetaPanel({ sourceMeta, runStatus, warnings = [] }: Props)
             <p className="text-sm font-semibold text-yellow-800">일부 데이터 기반 판단입니다.</p>
             <p className="text-xs text-yellow-700 mt-0.5">
               수집이 완전하지 않아 일부 섹션이 비어 있거나 부정확할 수 있습니다.
-              아래 warnings를 확인하세요.
             </p>
           </div>
         </div>
@@ -53,9 +54,33 @@ export function SourceMetaPanel({ sourceMeta, runStatus, warnings = [] }: Props)
         </div>
       )}
 
-      {/* source_meta 정보 바 */}
-      {hasAnything && (
-        <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+      {/* 데이터 출처 + source_meta 정보 바 */}
+      <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-2.5">
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-gray-600">
+
+          {/* 업무 원본 */}
+          <span className="flex items-center gap-1">
+            <span className="text-gray-400">업무 원본</span>
+            {rawTaskDbConfigured ? (
+              <strong className="text-gray-700">
+                Notion 팀 작업 현황
+                {rawTaskCount !== undefined && ` (${rawTaskCount}건)`}
+              </strong>
+            ) : (
+              <span className="text-amber-600 font-medium">미설정 — NOTION_TASK_DATABASE_ID 필요</span>
+            )}
+          </span>
+
+          {/* 판단 원본 */}
+          <span className="flex items-center gap-1">
+            <span className="text-gray-400">판단 원본</span>
+            <strong className="text-gray-700">
+              Notion 업무현황 요약
+              {agentTaskCount !== undefined && agentTaskCount > 0 && ` (tasks ${agentTaskCount}건)`}
+            </strong>
+          </span>
+
+          {/* source_meta 필드들 */}
           {sourceMeta?.lookback_days !== undefined && (
             <span>조회 기간 <strong className="text-gray-700">최근 {sourceMeta.lookback_days}일</strong></span>
           )}
@@ -68,7 +93,7 @@ export function SourceMetaPanel({ sourceMeta, runStatus, warnings = [] }: Props)
             </span>
           )}
           {sourceMeta?.notion_items !== undefined && (
-            <span>Notion 작업 <strong className="text-gray-700">{sourceMeta.notion_items}건</strong></span>
+            <span>Agent Notion <strong className="text-gray-700">{sourceMeta.notion_items}건</strong></span>
           )}
           {sourceMeta?.slack_messages !== undefined && (
             <span>Slack 신호 <strong className="text-gray-700">{sourceMeta.slack_messages}건</strong></span>
@@ -82,7 +107,7 @@ export function SourceMetaPanel({ sourceMeta, runStatus, warnings = [] }: Props)
             </span>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
