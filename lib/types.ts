@@ -83,7 +83,10 @@ export interface AttentionItemV2 {
 }
 
 export interface Overview {
-  status: StatusLevel | RunStatus;
+  /** Agent v2 payload에서 사용 */
+  overall_status?: StatusLevel | RunStatus;
+  /** legacy fallback */
+  status?: StatusLevel | RunStatus;
   summary?: string;
   metrics: OverviewMetrics;
   top_attention_items: AttentionItemV2[];

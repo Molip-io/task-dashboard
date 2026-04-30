@@ -163,7 +163,7 @@ export default async function HomePage() {
           date={date}
           runId={runId}
           createdAt={createdAt}
-          status={v2?.overview?.status ?? status}
+          status={v2?.overview?.overall_status ?? v2?.overview?.status ?? status}
           source={source}
           generatedBy={generatedBy ?? v2?.source_meta?.generated_by}
           warningCount={v2?.warnings?.length ?? 0}
