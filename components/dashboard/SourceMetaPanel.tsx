@@ -13,6 +13,7 @@ interface Props {
   rawTaskCount?: number;
   agentTaskCount?: number;
   rawTaskDbConfigured?: boolean;
+  slackSignalCount?: number;
 }
 
 export function SourceMetaPanel({
@@ -22,6 +23,7 @@ export function SourceMetaPanel({
   rawTaskCount,
   agentTaskCount,
   rawTaskDbConfigured = false,
+  slackSignalCount,
 }: Props) {
   const isPartial = runStatus === "partial";
 
@@ -97,6 +99,9 @@ export function SourceMetaPanel({
           )}
           {sourceMeta?.slack_messages !== undefined && (
             <span>Slack 신호 <strong className="text-gray-700">{sourceMeta.slack_messages}건</strong></span>
+          )}
+          {slackSignalCount !== undefined && slackSignalCount > 0 && (
+            <span>Slack 시그널 <strong className="text-gray-700">{slackSignalCount}건</strong></span>
           )}
           {sourceMeta?.retrieval_mode && (
             <span>

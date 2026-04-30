@@ -169,6 +169,33 @@ export interface SourceMetaV2 {
   generated_by?: "agent" | "manual" | "test" | string;
 }
 
+// ── Project Progress (프로젝트 진행 현황) ─────────────────────────────────────
+
+export interface Workstream {
+  label: string;
+  status?: string;
+  items?: string[];
+  evidence?: string;
+  next_action?: string;
+}
+
+export interface ConfirmationNeeded {
+  item: string;
+  owner?: string;
+  reason?: string;
+  requested_action?: string;
+}
+
+export interface ProjectProgress {
+  project: string;
+  current_summary?: string;
+  workstreams?: Workstream[];
+  next_actions?: string[];
+  schedule_notes?: string;
+  needs_confirmation?: ConfirmationNeeded[];
+  risks?: string[];
+}
+
 // ── Trend (run 간 비교) ───────────────────────────────────────────────────────
 export interface TrendStatusChange {
   target: string;
@@ -200,6 +227,7 @@ export interface WorkStatusPayloadV2 {
   slack_signals?: SlackSignal[];
   source_meta?: SourceMetaV2;
   trend?: Trend;
+  project_progress?: ProjectProgress[];
   warnings?: string[];
   errors?: string[];
 }

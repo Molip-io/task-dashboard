@@ -8,6 +8,7 @@ import {
   buildTeams,
   buildOwners,
 } from "@/lib/notion-tasks";
+import { buildProjectProgressFallback } from "@/lib/project-progress";
 import { isV2Payload, isV1Payload } from "@/lib/types";
 import type { WorkStatusPayloadV2, WorkStatusPayload } from "@/lib/types";
 
@@ -22,6 +23,7 @@ import { TeamOwnerSummary }    from "@/components/dashboard/TeamOwnerSummary";
 import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
 import { TrendSummary }        from "@/components/dashboard/TrendSummary";
 import { LegacyResultsView }   from "@/components/dashboard/LegacyResultsView";
+import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView";
 import { Section }             from "@/components/dashboard/shared";
 
 export const revalidate = 60;
@@ -140,6 +142,12 @@ export default async function HomePage() {
   const rawTeams    = buildTeams(rawTasks, v2?.teams ?? []);
   const rawOwners   = buildOwners(rawTasks, v2?.owners ?? []);
 
+  // 프로젝트 진행 현황 — Agent payload 우선, 없으면 rawTasks fallback
+  const agentHasProjectProgress = !!(v2?.project_progress?.length);
+  const projectProgress = agentHasProjectProgress
+    ? (v2!.project_progress!)
+    : buildProjectProgressFallback(rawTasks);
+
   // debug
   const parsedTopLevelKeys = data
     ? (payloadDebug?.parsed_top_level_keys?.length
@@ -200,6 +208,7 @@ export default async function HomePage() {
           rawTaskCount={rawTasks.length}
           agentTaskCount={v2?.tasks?.length}
           rawTaskDbConfigured={rawTaskDbConfigured}
+          slackSignalCount={v2?.slack_signals?.length}
         />
 
         {/* ── rawTasks가 있을 때 항상 표시 (v2/v1/unknown 무관) ─────────── */}
@@ -215,31 +224,35 @@ export default async function HomePage() {
         {/* ── V2 Dashboard ──────────────────────────────────────────────── */}
         {v2 && (
           <>
-            {/* 1. 오늘 확인할 항목 — Agent 판단 */}
+            {/* 1. 프로젝트 진행 현황 */}
+            <ProjectProgressView
+              items={projectProgress}
+              isFallback={!agentHasProjectProgress}
+            />
+
+            {/* 2. 오늘 확인할 항목 — Agent 판단 */}
             <Section title="오늘 확인할 항목">
               <AttentionList items={v2.overview.top_attention_items ?? []} />
             </Section>
 
-            {/* 2. KPI — rawTasks 기준 (없으면 Agent metrics fallback) */}
+            {/* 3. 지난 실행 대비 변화 — Agent */}
+            <TrendSummary trend={v2.trend} />
+
+            {/* 4. KPI — rawTasks 기준 (없으면 Agent metrics fallback) */}
             <OverviewMetricsGrid metrics={rawKPI} />
 
-            {/* 3. 프로젝트 — rawTasks 집계 + Agent 리스크 오버레이 */}
+            {/* 5. 프로젝트 / 팀 / 담당자 — rawTasks 집계 + Agent 오버레이 */}
             <ProjectStatusGrid projects={rawProjects.length ? rawProjects : (v2.projects ?? [])} />
-
-            {/* 4. 전체 작업 테이블 — rawTasks 기준 */}
-            <AllTasksTable tasks={rawTasks} />
-
-            {/* 5. 팀 / 담당자 — rawTasks 집계 + Agent 오버레이 */}
             <TeamOwnerSummary
               teams={rawTeams.length ? rawTeams : v2.teams}
               owners={rawOwners.length ? rawOwners : v2.owners}
             />
 
-            {/* 6. Slack 신호 — Agent */}
-            <SlackSignalsList signals={v2.slack_signals ?? []} />
+            {/* 6. 전체 작업 테이블 — rawTasks 기준 */}
+            <AllTasksTable tasks={rawTasks} />
 
-            {/* 7. 지난 실행 대비 변화 — Agent */}
-            <TrendSummary trend={v2.trend} />
+            {/* 7. Slack 신호 — Agent */}
+            <SlackSignalsList signals={v2.slack_signals ?? []} />
 
             {/* 전체 요약 */}
             {v2.overview.summary && (
