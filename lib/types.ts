@@ -110,6 +110,7 @@ export interface SlackSignal {
   type: SignalType | string;
   summary: string;
   related_task?: string;
+  related_workstream?: string;
   confidence?: "low" | "medium" | "high";
 }
 
@@ -193,6 +194,7 @@ export interface ProjectProgress {
   next_actions?: string[];
   schedule_notes?: string;
   needs_confirmation?: ConfirmationNeeded[];
+  slack_signals?: SlackSignal[];
   risks?: string[];
 }
 

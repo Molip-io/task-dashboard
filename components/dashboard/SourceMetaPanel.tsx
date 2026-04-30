@@ -11,6 +11,7 @@ interface Props {
   runStatus?: RunStatus | string;
   warnings?: string[];
   rawTaskCount?: number;
+  rawTaskWindowDays?: number;
   agentTaskCount?: number;
   rawTaskDbConfigured?: boolean;
   slackSignalCount?: number;
@@ -21,6 +22,7 @@ export function SourceMetaPanel({
   runStatus,
   warnings = [],
   rawTaskCount,
+  rawTaskWindowDays = 7,
   agentTaskCount,
   rawTaskDbConfigured = false,
   slackSignalCount,
@@ -72,6 +74,13 @@ export function SourceMetaPanel({
               <span className="text-amber-600 font-medium">미설정 — NOTION_TASK_DATABASE_ID 필요</span>
             )}
           </span>
+
+          {/* 조회 기간 — Agent source_meta 없으면 rawTask 기본값 표시 */}
+          {sourceMeta?.lookback_days === undefined && rawTaskDbConfigured && (
+            <span>
+              조회 기간 <strong className="text-gray-700">최근 {rawTaskWindowDays}일</strong>
+            </span>
+          )}
 
           {/* 판단 원본 */}
           <span className="flex items-center gap-1">

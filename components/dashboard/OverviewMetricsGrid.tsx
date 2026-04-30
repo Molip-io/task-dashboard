@@ -1,53 +1,44 @@
 import type { OverviewMetrics } from "@/lib/types";
 import { Section } from "./shared";
 
-interface MetricCardDef {
+interface Chip {
   key: keyof OverviewMetrics;
   label: string;
   highlight?: (v: number) => boolean;
-  icon: string;
+  highlightCls?: string;
 }
 
-const CARDS: MetricCardDef[] = [
-  { key: "total_tasks",            label: "전체 작업",   icon: "📋" },
-  { key: "active_tasks",           label: "진행 중",     icon: "▶️" },
-  { key: "planned_tasks",          label: "진행 예정",   icon: "📅" },
-  { key: "completed_tasks",        label: "완료",        icon: "✅" },
-  { key: "due_soon_tasks",         label: "마감 임박",   icon: "⏰", highlight: (v) => v > 0 },
-  { key: "overdue_tasks",          label: "마감 초과",   icon: "🔴", highlight: (v) => v > 0 },
-  { key: "confirm_request_tasks",  label: "확인 요청",   icon: "❓", highlight: (v) => v > 0 },
-  { key: "paused_tasks",           label: "일시 정지",   icon: "⏸",  highlight: (v) => v > 0 },
-  { key: "high_priority_tasks",    label: "0/1순위",     icon: "🔥" },
-  { key: "bottleneck_count",       label: "병목 후보",   icon: "🚧", highlight: (v) => v > 0 },
-  { key: "risk_count",             label: "리스크",      icon: "⚠️" },
-  { key: "attention_count",        label: "오늘 확인",   icon: "👁",  highlight: (v) => v > 0 },
+const CHIPS: Chip[] = [
+  { key: "total_tasks",          label: "전체" },
+  { key: "active_tasks",         label: "진행 중" },
+  { key: "planned_tasks",        label: "예정" },
+  { key: "completed_tasks",      label: "완료" },
+  { key: "overdue_tasks",        label: "마감 초과", highlight: (v) => v > 0, highlightCls: "bg-red-50 border-red-300 text-red-700 font-bold" },
+  { key: "due_soon_tasks",       label: "임박",      highlight: (v) => v > 0, highlightCls: "bg-orange-50 border-orange-300 text-orange-700 font-bold" },
+  { key: "high_priority_tasks",  label: "0/1순위" },
+  { key: "bottleneck_count",     label: "병목",       highlight: (v) => v > 0, highlightCls: "bg-yellow-50 border-yellow-300 text-yellow-700 font-bold" },
 ];
 
 export function OverviewMetricsGrid({ metrics }: { metrics: OverviewMetrics }) {
+  const defined = CHIPS.filter(({ key }) => metrics[key] !== undefined);
+  if (!defined.length) return null;
+
   return (
     <Section title="전체 지표">
-      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-        {CARDS.map(({ key, label, icon, highlight }) => {
+      <div className="flex flex-wrap gap-2">
+        {defined.map(({ key, label, highlight, highlightCls }) => {
           const val = metrics[key] ?? 0;
           const isHighlighted = highlight?.(val) ?? false;
+          const baseCls = isHighlighted
+            ? highlightCls ?? "bg-red-50 border-red-300 text-red-700"
+            : "bg-white border-gray-200 text-gray-700";
           return (
             <div
               key={key}
-              className={`rounded-xl border px-3 py-3 text-center transition-colors ${
-                isHighlighted
-                  ? "bg-red-50 border-red-200"
-                  : "bg-white border-gray-100"
-              }`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${baseCls}`}
             >
-              <div className="text-lg mb-0.5">{icon}</div>
-              <div
-                className={`text-2xl font-bold tabular-nums ${
-                  isHighlighted ? "text-red-600" : "text-gray-800"
-                }`}
-              >
-                {val}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5 leading-tight">{label}</div>
+              <span className="font-bold tabular-nums">{val}</span>
+              <span className="text-xs opacity-80">{label}</span>
             </div>
           );
         })}

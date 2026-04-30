@@ -1,5 +1,5 @@
-import type { ProjectProgress, Workstream, ConfirmationNeeded } from "@/lib/types";
-import { Section } from "./shared";
+import type { ProjectProgress, Workstream, ConfirmationNeeded, SlackSignal } from "@/lib/types";
+import { SignalBadge, Section } from "./shared";
 
 // ── Workstream status badge ────────────────────────────────────────────────────
 
@@ -57,6 +57,43 @@ function WorkstreamBlock({ ws }: { ws: Workstream }) {
   );
 }
 
+// ── Slack signals inside project ──────────────────────────────────────────────
+
+function ProjectSlackSignals({ signals }: { signals: SlackSignal[] }) {
+  if (!signals.length) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-1.5">
+        Slack 신호 ({signals.length})
+      </p>
+      <div className="space-y-1.5">
+        {signals.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+            <div className="shrink-0 pt-0.5">
+              <SignalBadge type={s.type} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-800 leading-snug">{s.summary}</p>
+              {(s.related_workstream || s.related_task || s.channel) && (
+                <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-gray-500">
+                  {s.related_workstream && <span>↳ {s.related_workstream}</span>}
+                  {s.related_task && <span>↳ {s.related_task}</span>}
+                  {s.channel && <span># {s.channel}</span>}
+                </div>
+              )}
+            </div>
+            {s.confidence && (
+              <span className="shrink-0 text-xs text-gray-400">
+                {s.confidence === "high" ? "높음" : s.confidence === "medium" ? "보통" : "낮음"}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── needs_confirmation block ──────────────────────────────────────────────────
 
 function ConfirmBlock({ items }: { items: ConfirmationNeeded[] }) {
@@ -99,10 +136,11 @@ function ProjectCard({
   pp: ProjectProgress;
   isFallback: boolean;
 }) {
-  const workstreams = pp.workstreams ?? [];
-  const confirms    = pp.needs_confirmation ?? [];
-  const risks       = pp.risks ?? [];
-  const nextActions = pp.next_actions ?? [];
+  const workstreams  = pp.workstreams ?? [];
+  const confirms     = pp.needs_confirmation ?? [];
+  const risks        = pp.risks ?? [];
+  const nextActions  = pp.next_actions ?? [];
+  const slackSignals = pp.slack_signals ?? [];
 
   const hasRisk = confirms.length > 0 || risks.length > 0;
 
@@ -148,6 +186,9 @@ function ProjectCard({
 
       {/* 확인 필요 */}
       <ConfirmBlock items={confirms} />
+
+      {/* Slack 신호 */}
+      <ProjectSlackSignals signals={slackSignals} />
 
       {/* 리스크 */}
       {risks.length > 0 && (

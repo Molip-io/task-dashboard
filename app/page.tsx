@@ -4,20 +4,18 @@ import { getLatestRun } from "@/lib/storage";
 import {
   getTasksFromNotion,
   calcKPI,
-  buildProjects,
   buildTeams,
   buildOwners,
 } from "@/lib/notion-tasks";
 import { buildProjectProgressFallback } from "@/lib/project-progress";
 import { isV2Payload, isV1Payload } from "@/lib/types";
-import type { WorkStatusPayloadV2, WorkStatusPayload } from "@/lib/types";
+import type { WorkStatusPayloadV2, WorkStatusPayload, SlackSignal, ProjectProgress } from "@/lib/types";
 
 import { DashboardHeader }     from "@/components/dashboard/DashboardHeader";
 import { WarningErrorPanel }   from "@/components/dashboard/WarningErrorPanel";
 import { SourceMetaPanel }     from "@/components/dashboard/SourceMetaPanel";
 import { OverviewMetricsGrid } from "@/components/dashboard/OverviewMetricsGrid";
 import { AttentionList }       from "@/components/dashboard/AttentionList";
-import { ProjectStatusGrid }   from "@/components/dashboard/ProjectStatusGrid";
 import { AllTasksTable }       from "@/components/dashboard/AllTasksTable";
 import { TeamOwnerSummary }    from "@/components/dashboard/TeamOwnerSummary";
 import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
@@ -28,8 +26,39 @@ import { Section }             from "@/components/dashboard/shared";
 
 export const revalidate = 60;
 
+const RAW_TASK_WINDOW_DAYS = 7;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+// Slack 신호를 project_progress 항목에 연결 — project 필드 매칭
+function distributeSlackSignals(
+  projectProgress: ProjectProgress[],
+  signals: SlackSignal[]
+): { enriched: ProjectProgress[]; unlinked: SlackSignal[] } {
+  const projectSet = new Set(projectProgress.map((pp) => pp.project));
+  const byProject = new Map<string, SlackSignal[]>();
+  const unlinked: SlackSignal[] = [];
+
+  for (const s of signals) {
+    if (s.project && projectSet.has(s.project)) {
+      if (!byProject.has(s.project)) byProject.set(s.project, []);
+      byProject.get(s.project)!.push(s);
+    } else {
+      unlinked.push(s);
+    }
+  }
+
+  const enriched = projectProgress.map((pp) => ({
+    ...pp,
+    slack_signals: [
+      ...(pp.slack_signals ?? []),
+      ...(byProject.get(pp.project) ?? []),
+    ],
+  }));
+
+  return { enriched, unlinked };
 }
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
@@ -104,10 +133,9 @@ async function fetchJudgment(): Promise<{
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function HomePage() {
-  // 두 소스를 병렬 조회
   const [judgment, rawTasks] = await Promise.all([
     fetchJudgment(),
-    getTasksFromNotion().catch((e) => {
+    getTasksFromNotion(RAW_TASK_WINDOW_DAYS).catch((e) => {
       console.error("[page] getTasksFromNotion failed:", e);
       return [];
     }),
@@ -136,17 +164,21 @@ export default async function HomePage() {
   const v2 = isV2 ? (data as unknown as WorkStatusPayloadV2) : null;
   const v1 = isV1 ? (data as unknown as WorkStatusPayload) : null;
 
-  // rawTasks 기반 집계 (DB 미설정이면 빈 배열)
-  const rawKPI      = rawTasks.length ? calcKPI(rawTasks) : (v2?.overview?.metrics ?? {});
-  const rawProjects = buildProjects(rawTasks, v2?.projects ?? []);
-  const rawTeams    = buildTeams(rawTasks, v2?.teams ?? []);
-  const rawOwners   = buildOwners(rawTasks, v2?.owners ?? []);
+  // rawTasks 기반 집계
+  const rawKPI    = rawTasks.length ? calcKPI(rawTasks) : (v2?.overview?.metrics ?? {});
+  const rawTeams  = buildTeams(rawTasks, v2?.teams ?? []);
+  const rawOwners = buildOwners(rawTasks, v2?.owners ?? []);
 
   // 프로젝트 진행 현황 — Agent payload 우선, 없으면 rawTasks fallback
   const agentHasProjectProgress = !!(v2?.project_progress?.length);
-  const projectProgress = agentHasProjectProgress
-    ? (v2!.project_progress!)
+  const baseProgress: ProjectProgress[] = agentHasProjectProgress
+    ? v2!.project_progress!
     : buildProjectProgressFallback(rawTasks);
+
+  // Slack 신호 → 프로젝트 카드 연결
+  const allSignals = v2?.slack_signals ?? [];
+  const { enriched: projectProgress, unlinked: unlinkedSignals } =
+    distributeSlackSignals(baseProgress, allSignals);
 
   // debug
   const parsedTopLevelKeys = data
@@ -157,7 +189,7 @@ export default async function HomePage() {
   const debugOverviewExists = payloadDebug?.overview_exists ?? hasOverview;
   const debugResultsExists  = data ? (payloadDebug?.results_exists ?? ("results" in data)) : false;
 
-  // Empty state — judgment도 없고 rawTasks도 없을 때
+  // Empty state
   if (!data && rawTasks.length === 0) {
     return (
       <main className="min-h-screen bg-gray-50">
@@ -183,7 +215,7 @@ export default async function HomePage() {
     <main className="min-h-screen bg-gray-50">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-0">
 
-        {/* Header */}
+        {/* 1. Header */}
         <DashboardHeader
           date={date}
           runId={runId}
@@ -200,22 +232,26 @@ export default async function HomePage() {
           errors={v2?.errors ?? (fetchError ? [fetchError] : [])}
         />
 
-        {/* 수집 출처 + partial 안내 + warnings */}
+        {/* 2. 수집 상태 카드 */}
         <SourceMetaPanel
           sourceMeta={v2?.source_meta}
           runStatus={status}
           warnings={v2?.warnings}
           rawTaskCount={rawTasks.length}
+          rawTaskWindowDays={RAW_TASK_WINDOW_DAYS}
           agentTaskCount={v2?.tasks?.length}
           rawTaskDbConfigured={rawTaskDbConfigured}
-          slackSignalCount={v2?.slack_signals?.length}
+          slackSignalCount={allSignals.length}
         />
 
-        {/* ── rawTasks가 있을 때 항상 표시 (v2/v1/unknown 무관) ─────────── */}
+        {/* ── rawTasks만 있을 때 (v2/v1 없음) ─────────────────────────── */}
         {rawTasks.length > 0 && !v2 && !v1 && (
           <>
+            <ProjectProgressView
+              items={buildProjectProgressFallback(rawTasks)}
+              isFallback
+            />
             <OverviewMetricsGrid metrics={rawKPI} />
-            <ProjectStatusGrid projects={rawProjects} />
             <AllTasksTable tasks={rawTasks} />
             <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
           </>
@@ -224,40 +260,42 @@ export default async function HomePage() {
         {/* ── V2 Dashboard ──────────────────────────────────────────────── */}
         {v2 && (
           <>
-            {/* 1. 프로젝트 진행 현황 */}
+            {/* 3. 프로젝트 진행 현황 */}
             <ProjectProgressView
               items={projectProgress}
               isFallback={!agentHasProjectProgress}
             />
 
-            {/* 2. 오늘 확인할 항목 — Agent 판단 */}
+            {/* 4. 오늘 확인할 항목 */}
             <Section title="오늘 확인할 항목">
               <AttentionList items={v2.overview.top_attention_items ?? []} />
             </Section>
 
-            {/* 3. 지난 실행 대비 변화 — Agent */}
+            {/* 5. 지난 실행 대비 변화 */}
             <TrendSummary trend={v2.trend} />
 
-            {/* 4. KPI — rawTasks 기준 (없으면 Agent metrics fallback) */}
+            {/* 6. 전체 지표 (컴팩트) */}
             <OverviewMetricsGrid metrics={rawKPI} />
 
-            {/* 5. 프로젝트 / 팀 / 담당자 — rawTasks 집계 + Agent 오버레이 */}
-            <ProjectStatusGrid projects={rawProjects.length ? rawProjects : (v2.projects ?? [])} />
+            {/* 7. 전체 작업 테이블 */}
+            <AllTasksTable tasks={rawTasks} />
+
+            {/* 8. 전체 담당자 현황 (rawTasks 기준) */}
             <TeamOwnerSummary
               teams={rawTeams.length ? rawTeams : v2.teams}
               owners={rawOwners.length ? rawOwners : v2.owners}
             />
 
-            {/* 6. 전체 작업 테이블 — rawTasks 기준 */}
-            <AllTasksTable tasks={rawTasks} />
-
-            {/* 7. Slack 신호 — Agent */}
-            <SlackSignalsList signals={v2.slack_signals ?? []} />
+            {/* 9. 미연결 Slack 신호 */}
+            <SlackSignalsList
+              signals={unlinkedSignals}
+              title="미연결 Slack 신호"
+            />
 
             {/* 전체 요약 */}
             {v2.overview.summary && (
               <Section title="전체 요약">
-                <p className="text-sm text-gray-600 leading-relaxed bg-white rounded-xl border border-gray-100 p-4">
+                <p className="text-sm text-gray-700 leading-relaxed bg-white rounded-xl border border-gray-100 p-4">
                   {v2.overview.summary}
                 </p>
               </Section>
@@ -270,6 +308,10 @@ export default async function HomePage() {
           <>
             {rawTasks.length > 0 && (
               <>
+                <ProjectProgressView
+                  items={buildProjectProgressFallback(rawTasks)}
+                  isFallback
+                />
                 <OverviewMetricsGrid metrics={rawKPI} />
                 <AllTasksTable tasks={rawTasks} />
                 <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
@@ -279,7 +321,7 @@ export default async function HomePage() {
           </>
         )}
 
-        {/* ── Unknown format (v2/v1 모두 아닌 경우) ────────────────────── */}
+        {/* ── Unknown format ────────────────────────────────────────────── */}
         {!v2 && !v1 && data && (
           <div className="mt-8 p-4 space-y-2 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
             <p className="font-medium">

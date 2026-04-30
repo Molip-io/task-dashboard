@@ -240,7 +240,7 @@ function normalizePage(page: {
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
-export async function getTasksFromNotion(): Promise<DashboardTask[]> {
+export async function getTasksFromNotion(lookbackDays = 7): Promise<DashboardTask[]> {
   const token = process.env.NOTION_TOKEN;
   const dbId  = process.env.NOTION_TASK_DATABASE_ID;
   if (!token || !dbId) return [];
@@ -299,7 +299,12 @@ export async function getTasksFromNotion(): Promise<DashboardTask[]> {
     cursor = json.next_cursor ?? undefined;
   }
 
-  return allTasks;
+  // 미완료 작업은 항상 포함, 완료된 작업은 lookbackDays 이내 수정된 것만 포함
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - lookbackDays);
+  return allTasks.filter(
+    (t) => !t.is_done || new Date(t.last_edited_time) >= cutoff
+  );
 }
 
 // ── Aggregation helpers ───────────────────────────────────────────────────────
