@@ -19,6 +19,20 @@ const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 const MAX_TASKS = 500;
 
+function maskId(id?: string): string {
+  if (!id) return "missing";
+  return `${id.slice(0, 8)}...${id.slice(-6)} len=${id.length}`;
+}
+
+// database_id 정규화 — UUID ↔ 32자 hex 변환용. data source ID를 database ID로 바꾸는 용도가 아님.
+export function normalizeNotionId(id?: string): string {
+  if (!id) return "";
+  const clean = id.trim();
+  const match = clean.match(/[a-f0-9]{32}/i);
+  if (match) return match[0];
+  return clean.replace(/-/g, "");
+}
+
 // ── Notion property value shapes ─────────────────────────────────────────────
 
 type PropValue = Record<string, unknown>;
@@ -243,6 +257,18 @@ function normalizePage(page: {
 export async function getTasksFromNotion(lookbackDays = 30): Promise<DashboardTask[]> {
   const token = process.env.NOTION_TOKEN;
   const dbId  = process.env.NOTION_TASK_DATABASE_ID;
+
+  console.info("[notion env]", {
+    taskDatabaseId:    maskId(process.env.NOTION_TASK_DATABASE_ID),
+    taskDataSourceId:  maskId(process.env.NOTION_TASK_DATA_SOURCE_ID),
+    summaryDatabaseId: maskId(process.env.NOTION_WORK_STATUS_SUMMARY_DATABASE_ID),
+    projectDatabaseId: maskId(process.env.NOTION_PROJECT_DATABASE_ID),
+  });
+  console.info("[rawTasks notion query]", {
+    queryMode: "database_id",
+    usingId:   maskId(process.env.NOTION_TASK_DATABASE_ID),
+  });
+
   if (!dbId) throw new Error("env_missing: NOTION_TASK_DATABASE_ID가 설정되지 않았습니다.");
   if (!token) throw new Error("token_missing: NOTION_TOKEN이 설정되지 않았습니다.");
 

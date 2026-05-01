@@ -27,11 +27,16 @@ function WsStatusBadge({ status }: { status?: string }) {
 // ── Single workstream ─────────────────────────────────────────────────────────
 
 function WorkstreamBlock({ ws }: { ws: Workstream }) {
-  const items = ws.items ?? [];
+  const w = ws as unknown as Record<string, unknown>;
+  const label = (ws.label || (w.name as string) || (w.title as string) || "미분류").trim();
+  const items: string[] = ws.items ?? (w.key_tasks as string[]) ?? (w.tasks as string[]) ?? [];
+  const evidence = ws.evidence ?? (w.summary as string) ?? "";
+  const nextAction = ws.next_action ?? (w.nextAction as string) ?? "";
+
   return (
     <div className="border-l-2 border-gray-200 pl-3 py-0.5">
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-sm font-semibold text-gray-800">{ws.label}</span>
+        <span className="text-sm font-semibold text-gray-800">{label}</span>
         <WsStatusBadge status={ws.status} />
       </div>
       {items.length > 0 && (
@@ -44,14 +49,14 @@ function WorkstreamBlock({ ws }: { ws: Workstream }) {
           ))}
         </ul>
       )}
-      {ws.next_action && (
+      {nextAction && (
         <p className="mt-1.5 text-xs text-indigo-700 font-medium flex gap-1">
           <span className="shrink-0">→</span>
-          <span>{ws.next_action}</span>
+          <span>{nextAction}</span>
         </p>
       )}
-      {ws.evidence && (
-        <p className="mt-1 text-xs text-gray-400 italic">{ws.evidence}</p>
+      {evidence && (
+        <p className="mt-1 text-xs text-gray-400 italic">{evidence}</p>
       )}
     </div>
   );
@@ -67,28 +72,35 @@ function ProjectSlackSignals({ signals }: { signals: SlackSignal[] }) {
         Slack 신호 ({signals.length})
       </p>
       <div className="space-y-1.5">
-        {signals.map((s, i) => (
-          <div key={i} className="flex items-start gap-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-            <div className="shrink-0 pt-0.5">
-              <SignalBadge type={s.type} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-800 leading-snug">{s.summary}</p>
-              {(s.related_workstream || s.related_task || s.channel) && (
-                <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-gray-500">
-                  {s.related_workstream && <span>↳ {s.related_workstream}</span>}
-                  {s.related_task && <span>↳ {s.related_task}</span>}
-                  {s.channel && <span># {s.channel}</span>}
-                </div>
+        {signals.map((s, i) => {
+          const ss = s as unknown as Record<string, unknown>;
+          const signalType = s.type ?? (ss.signal_type as string) ?? "info";
+          const signalSummary = s.summary ?? (ss.text as string) ?? (ss.message as string) ?? "";
+          if (!signalSummary) return null;
+          const relatedWorkstream = s.related_workstream ?? (ss.workstream as string) ?? "";
+          return (
+            <div key={i} className="flex items-start gap-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+              <div className="shrink-0 pt-0.5">
+                <SignalBadge type={signalType} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-800 leading-snug">{signalSummary}</p>
+                {(relatedWorkstream || s.related_task || s.channel) && (
+                  <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-gray-500">
+                    {relatedWorkstream && <span>↳ {relatedWorkstream}</span>}
+                    {s.related_task && <span>↳ {s.related_task}</span>}
+                    {s.channel && <span># {s.channel}</span>}
+                  </div>
+                )}
+              </div>
+              {s.confidence && (
+                <span className="shrink-0 text-xs text-gray-400">
+                  {s.confidence === "high" ? "높음" : s.confidence === "medium" ? "보통" : "낮음"}
+                </span>
               )}
             </div>
-            {s.confidence && (
-              <span className="shrink-0 text-xs text-gray-400">
-                {s.confidence === "high" ? "높음" : s.confidence === "medium" ? "보통" : "낮음"}
-              </span>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -104,24 +116,30 @@ function ConfirmBlock({ items }: { items: ConfirmationNeeded[] }) {
         확인 필요 ({items.length})
       </p>
       <ul className="space-y-1.5">
-        {items.map((c, i) => (
-          <li key={i} className="text-sm">
-            <span className="text-gray-800">{c.item}</span>
-            {c.owner && (
-              <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
-                {c.owner}
-              </span>
-            )}
-            {c.reason && (
-              <span className="ml-1.5 text-xs text-orange-600">{c.reason}</span>
-            )}
-            {c.requested_action && (
-              <p className="mt-0.5 text-xs text-orange-700 pl-1 font-medium">
-                → {c.requested_action}
-              </p>
-            )}
-          </li>
-        ))}
+        {items.map((c, i) => {
+          const ci = c as unknown as Record<string, unknown>;
+          const text = c.item || (ci.summary as string) || (ci.title as string) || "";
+          const owner = c.owner || (ci.assignee as string) || "";
+          if (!text) return null;
+          return (
+            <li key={i} className="text-sm">
+              <span className="text-gray-800">{text}</span>
+              {owner && (
+                <span className="ml-1.5 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">
+                  {owner}
+                </span>
+              )}
+              {c.reason && (
+                <span className="ml-1.5 text-xs text-orange-600">{c.reason}</span>
+              )}
+              {c.requested_action && (
+                <p className="mt-0.5 text-xs text-orange-700 pl-1 font-medium">
+                  → {c.requested_action}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -154,8 +172,10 @@ function ProjectCard({
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
           <h3 className="font-bold text-gray-900 text-base">{pp.project}</h3>
-          {pp.current_summary && (
-            <p className="text-sm text-gray-600 mt-0.5 leading-snug">{pp.current_summary}</p>
+          {(pp.current_summary ?? ((pp as unknown as Record<string, unknown>).summary as string)) && (
+            <p className="text-sm text-gray-600 mt-0.5 leading-snug">
+              {pp.current_summary ?? ((pp as unknown as Record<string, unknown>).summary as string)}
+            </p>
           )}
         </div>
         {isFallback && (

@@ -77,7 +77,7 @@ function parseError(fetchError?: string, rawTaskDbConfigured?: boolean): { title
   if (fetchError?.match(/404|database_not_found/i)) {
     return {
       title: "DB 없음 (404)",
-      body: "NOTION_TASK_DATABASE_ID 값이 올바른지 확인하세요.",
+      body: "rawTasks 조회 실패: NOTION_TASK_DATABASE_ID에 database ID(ad7f7eab...)를 설정해야 합니다. data source ID(3e7e5c84...)는 databases.query에 사용할 수 없습니다. Vercel 환경변수를 확인하세요.",
     };
   }
   if (fetchError) {
