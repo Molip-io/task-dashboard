@@ -9,6 +9,16 @@ const RISK_COLORS: Record<string, string> = {
   risk:    "bg-orange-50",
 };
 
+type ViewMode = "incomplete" | "week7" | "week14" | "due_soon" | "high_priority";
+
+const VIEW_MODES: { id: ViewMode; label: string }[] = [
+  { id: "incomplete",     label: "미완료 전체" },
+  { id: "week7",          label: "최근 7일" },
+  { id: "week14",         label: "최근 14일" },
+  { id: "due_soon",       label: "마감 임박" },
+  { id: "high_priority",  label: "고우선" },
+];
+
 interface Filters {
   project:  string;
   owner:    string;
@@ -44,6 +54,41 @@ function OwnerPills({ owners }: { owners: string[] }) {
   );
 }
 
+// 오류 메시지 파싱 → 코드 + 설명
+function parseError(fetchError?: string, rawTaskDbConfigured?: boolean): { title: string; body: string } {
+  if (!rawTaskDbConfigured || fetchError?.startsWith("env_missing:")) {
+    return {
+      title: "env 미설정",
+      body: "NOTION_TASK_DATABASE_ID 환경변수를 설정하세요.",
+    };
+  }
+  if (fetchError?.startsWith("token_missing:")) {
+    return {
+      title: "token 미설정",
+      body: "NOTION_TOKEN 환경변수를 설정하세요.",
+    };
+  }
+  if (fetchError?.match(/permission.denied|403|unauthorized/i)) {
+    return {
+      title: "Notion API 권한 없음",
+      body: `Notion Integration을 '😃 팀 작업 현황' DB에 공유해주세요. (${fetchError})`,
+    };
+  }
+  if (fetchError?.match(/404|database_not_found/i)) {
+    return {
+      title: "DB 없음 (404)",
+      body: "NOTION_TASK_DATABASE_ID 값이 올바른지 확인하세요.",
+    };
+  }
+  if (fetchError) {
+    return { title: "조회 오류", body: fetchError };
+  }
+  return {
+    title: "작업 없음",
+    body: "조건에 맞는 작업이 없습니다.",
+  };
+}
+
 interface AllTasksTableProps {
   tasks: DashboardTask[];
   fetchError?: string;
@@ -52,24 +97,46 @@ interface AllTasksTableProps {
 }
 
 export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, sectionTitle }: AllTasksTableProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>("incomplete");
   const [filters, setFilters] = useState<Filters>({
     project: "", owner: "", team: "", status: "", priority: "",
   });
   const [showDone, setShowDone] = useState(false);
 
+  // ViewMode 기준 1차 필터
+  const viewFiltered = useMemo(() => {
+    const now = Date.now();
+    const cutoff7  = now - 7  * 86_400_000;
+    const cutoff14 = now - 14 * 86_400_000;
+    switch (viewMode) {
+      case "incomplete":
+        return tasks.filter((t) => !t.is_done);
+      case "week7":
+        return tasks.filter((t) => new Date(t.last_edited_time).getTime() >= cutoff7);
+      case "week14":
+        return tasks.filter((t) => new Date(t.last_edited_time).getTime() >= cutoff14);
+      case "due_soon":
+        return tasks.filter((t) => t.is_due_soon || t.is_overdue);
+      case "high_priority":
+        return tasks.filter((t) => t.priority === "0순위" || t.priority === "1순위");
+      default:
+        return tasks;
+    }
+  }, [tasks, viewMode]);
+
   const options = useMemo(() => {
-    const allOwners = tasks.flatMap((t) => t.owners.length ? t.owners : [t.owner]);
+    const allOwners = viewFiltered.flatMap((t) => t.owners.length ? t.owners : [t.owner]);
     return {
-      projects:   uniq(tasks.map((t) => t.project)),
+      projects:   uniq(viewFiltered.map((t) => t.project)),
       owners:     uniq(allOwners),
-      teams:      uniq(tasks.map((t) => t.team)),
-      statuses:   uniq(tasks.map((t) => t.status)),
-      priorities: uniq(tasks.map((t) => t.priority)),
+      teams:      uniq(viewFiltered.map((t) => t.team)),
+      statuses:   uniq(viewFiltered.map((t) => t.status)),
+      priorities: uniq(viewFiltered.map((t) => t.priority)),
     };
-  }, [tasks]);
+  }, [viewFiltered]);
 
   const filtered = useMemo(() => {
-    return tasks
+    return viewFiltered
       .filter((t) => {
         if (!showDone && t.is_done) return false;
         const ownerList = t.owners.length ? t.owners : [t.owner];
@@ -82,7 +149,6 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
         );
       })
       .sort((a, b) => {
-        // overdue first, then due_soon, then active, then rest
         const score = (t: DashboardTask) =>
           t.is_overdue ? 0 : t.is_due_soon ? 1 : t.is_active ? 2 : t.is_done ? 4 : 3;
         const sd = score(a) - score(b);
@@ -91,7 +157,7 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
         const db = b.deadline ?? "9999";
         return da < db ? -1 : da > db ? 1 : 0;
       });
-  }, [tasks, filters, showDone]);
+  }, [viewFiltered, filters, showDone]);
 
   const set = (key: keyof Filters) => (e: React.ChangeEvent<HTMLSelectElement>) =>
     setFilters((prev) => ({ ...prev, [key]: e.target.value }));
@@ -99,34 +165,27 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
   const clearFilters = () => setFilters({ project: "", owner: "", team: "", status: "", priority: "" });
   const hasFilter = Object.values(filters).some(Boolean);
 
-  // counts for tab display
-  const doneCount   = tasks.filter((t) => t.is_done).length;
-  const activeCount = filtered.filter((t) => t.is_active).length;
+  const doneCount    = viewFiltered.filter((t) => t.is_done).length;
+  const activeCount  = filtered.filter((t) => t.is_active).length;
   const overdueCount = filtered.filter((t) => t.is_overdue).length;
 
+  const baseTitle    = sectionTitle ?? "원본 확인: 전체 작업";
+
   if (!tasks.length) {
-    const title = sectionTitle ?? "원본 확인: 전체 작업";
-    let emptyTitle = "조건에 맞는 작업 없음";
-    let emptyBody = "7일 이내 미완료 작업이 없습니다.";
-    if (!rawTaskDbConfigured) {
-      emptyTitle = "env 미설정";
-      emptyBody = "NOTION_TASK_DATABASE_ID 환경변수를 설정하세요.";
-    } else if (fetchError?.match(/403|permission|unauthorized/i)) {
-      emptyTitle = "Notion API 권한 없음";
-      emptyBody = fetchError;
-    } else if (fetchError) {
-      emptyTitle = "조회 오류";
-      emptyBody = fetchError;
-    }
+    const { title, body } = parseError(fetchError, rawTaskDbConfigured);
     return (
-      <Section title={title}>
+      <Section title={baseTitle}>
         <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
-          <p className="text-sm font-medium text-gray-500">{emptyTitle}</p>
-          <p className="text-xs text-gray-400 mt-1">{emptyBody}</p>
+          <p className="text-sm font-medium text-gray-500">{title}</p>
+          <p className="text-xs text-gray-400 mt-1">{body}</p>
         </div>
       </Section>
     );
   }
+
+  const displayTitle = overdueCount > 0
+    ? `${baseTitle} (${filtered.length}) — 마감 초과 ${overdueCount}건 ⚠`
+    : `${baseTitle} (${filtered.length})`;
 
   const Select = ({ filterKey, options: opts, label }: {
     filterKey: keyof Filters; options: string[]; label: string;
@@ -141,14 +200,30 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
     </select>
   );
 
-  const baseTitle = sectionTitle ?? "원본 확인: 전체 작업";
-  const displayTitle = overdueCount > 0
-    ? `${baseTitle} (${filtered.length}) — 마감 초과 ${overdueCount}건 ⚠`
-    : `${baseTitle} (${filtered.length})`;
-
   return (
     <Section title={displayTitle}>
-      {/* 필터 바 */}
+      {/* 원본 작업 ViewMode 탭 */}
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mr-1">보기</span>
+        {VIEW_MODES.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setViewMode(id)}
+            className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+              viewMode === id
+                ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-gray-400">
+          총 <strong className="text-gray-600">{tasks.length}</strong>건 조회됨
+        </span>
+      </div>
+
+      {/* 세부 필터 바 */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <Select filterKey="project"  options={options.projects}   label="전체 프로젝트" />
         <Select filterKey="owner"    options={options.owners}     label="전체 담당자" />
@@ -156,7 +231,6 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
         <Select filterKey="status"   options={options.statuses}   label="전체 상태" />
         <Select filterKey="priority" options={options.priorities} label="전체 우선순위" />
 
-        {/* 완료 포함 토글 */}
         <label className="flex items-center gap-1.5 cursor-pointer ml-1 text-xs text-gray-600 select-none">
           <input
             type="checkbox"

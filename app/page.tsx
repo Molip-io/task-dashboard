@@ -24,9 +24,6 @@ import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView"
 
 export const revalidate = 60;
 
-// LOOKBACK_DAYS env로 재정의 가능 (기본 7일)
-const RAW_TASK_WINDOW_DAYS = parseInt(process.env.LOOKBACK_DAYS ?? "7", 10);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -148,7 +145,7 @@ export default async function HomePage() {
 
   const [judgment] = await Promise.all([
     fetchJudgment(),
-    getTasksFromNotion(RAW_TASK_WINDOW_DAYS)
+    getTasksFromNotion()
       .then((tasks) => { rawTasks = tasks; })
       .catch((e: unknown) => {
         console.error("[page] getTasksFromNotion failed:", e);
@@ -195,7 +192,7 @@ export default async function HomePage() {
   const { enriched: projectProgress, unlinked: unlinkedSignals } =
     distributeSlackSignals(baseProgress, allSignals);
 
-  // 오늘 확인 요약 건수 (project_progress 카드들의 needs_confirmation 합산)
+  // 오늘 확인 요약 건수
   const confirmCount = projectProgress.reduce(
     (n, pp) => n + (pp.needs_confirmation?.length ?? 0), 0
   );
@@ -209,9 +206,13 @@ export default async function HomePage() {
   const debugOverviewExists = payloadDebug?.overview_exists ?? hasOverview;
   const debugResultsExists  = data ? (payloadDebug?.results_exists ?? ("results" in data)) : false;
 
-  // owners / teams 결정 (rawTasks 우선, 없으면 v2 fallback)
-  const effectiveOwners = rawOwners.length ? rawOwners : (v2?.owners ?? []);
-  const effectiveTeams  = rawTeams.length  ? rawTeams  : (v2?.teams  ?? []);
+  // ── Owner 분리
+  // A. 확인 필요 담당자 — Agent payload 기준 (status 판단이 있는 것)
+  const alertOwners = v2?.owners ?? [];
+  // B. 전체 작업 담당자 — rawTasks 기준
+  const taskOwners  = rawOwners;
+  // 팀별 현황 — rawTasks 기준, Agent fallback
+  const effectiveTeams = rawTeams.length ? rawTeams : (v2?.teams ?? []);
 
   // Empty state
   if (!data && rawTasks.length === 0) {
@@ -257,7 +258,6 @@ export default async function HomePage() {
           runStatus={status}
           warnings={v2?.warnings}
           rawTaskCount={rawTasks.length}
-          rawTaskWindowDays={RAW_TASK_WINDOW_DAYS}
           agentTaskCount={v2?.tasks?.length}
           rawTaskDbConfigured={rawTaskDbConfigured}
           slackSignalCount={allSignals.length}
@@ -272,14 +272,14 @@ export default async function HomePage() {
               items={buildProjectProgressFallback(rawTasks)}
               isFallback
             />
-            <OwnerAlertSummary owners={rawOwners} />
+            <OwnerAlertSummary owners={alertOwners} />
             <AllTasksTable
               tasks={rawTasks}
               fetchError={rawTaskFetchError}
               rawTaskDbConfigured={rawTaskDbConfigured}
             />
             <DetailSection>
-              <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+              <TeamOwnerSummary teams={rawTeams} owners={taskOwners} />
             </DetailSection>
           </>
         )}
@@ -303,8 +303,8 @@ export default async function HomePage() {
               isFallback={!agentHasProjectProgress}
             />
 
-            {/* 5. 확인 필요 담당자 */}
-            <OwnerAlertSummary owners={effectiveOwners} />
+            {/* 5. 확인 필요 담당자 — Agent 기준 */}
+            <OwnerAlertSummary owners={alertOwners} />
 
             {/* 6. 지난 실행 대비 변화 */}
             <TrendSummary trend={v2.trend} />
@@ -316,9 +316,9 @@ export default async function HomePage() {
               rawTaskDbConfigured={rawTaskDbConfigured}
             />
 
-            {/* 8. 상세: 전체 담당자 / 전체 Slack / warnings·errors */}
+            {/* 8. 상세: 전체 작업 담당자 / 전체 직원 커버리지 / 미연결 Slack / warnings·errors */}
             <DetailSection>
-              <TeamOwnerSummary teams={effectiveTeams} owners={effectiveOwners} />
+              <TeamOwnerSummary teams={effectiveTeams} owners={taskOwners} />
               {unlinkedSignals.length > 0 && (
                 <SlackSignalsList signals={unlinkedSignals} title="미연결 Slack 신호" />
               )}
@@ -338,14 +338,14 @@ export default async function HomePage() {
                   items={buildProjectProgressFallback(rawTasks)}
                   isFallback
                 />
-                <OwnerAlertSummary owners={rawOwners} />
+                <OwnerAlertSummary owners={alertOwners} />
                 <AllTasksTable
                   tasks={rawTasks}
                   fetchError={rawTaskFetchError}
                   rawTaskDbConfigured={rawTaskDbConfigured}
                 />
                 <DetailSection>
-                  <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+                  <TeamOwnerSummary teams={rawTeams} owners={taskOwners} />
                 </DetailSection>
               </>
             )}
@@ -392,7 +392,7 @@ function DetailSection({ children }: { children: React.ReactNode }) {
       <summary className="cursor-pointer inline-flex items-center gap-2 text-xs font-semibold text-gray-400 hover:text-gray-600 select-none list-none py-1">
         <span className="group-open:hidden">▸</span>
         <span className="hidden group-open:inline">▾</span>
-        <span>상세 보기 (전체 담당자 · Slack · 오류/경고)</span>
+        <span>상세 보기 (전체 작업 담당자 · 직원 커버리지 · Slack · 오류/경고)</span>
       </summary>
       <div className="mt-2">
         {children}

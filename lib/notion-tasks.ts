@@ -240,10 +240,11 @@ function normalizePage(page: {
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
-export async function getTasksFromNotion(lookbackDays = 7): Promise<DashboardTask[]> {
+export async function getTasksFromNotion(lookbackDays = 30): Promise<DashboardTask[]> {
   const token = process.env.NOTION_TOKEN;
   const dbId  = process.env.NOTION_TASK_DATABASE_ID;
-  if (!token || !dbId) return [];
+  if (!dbId) throw new Error("env_missing: NOTION_TASK_DATABASE_ID가 설정되지 않았습니다.");
+  if (!token) throw new Error("token_missing: NOTION_TOKEN이 설정되지 않았습니다.");
 
   const allTasks: DashboardTask[] = [];
   let hasMore = true;

@@ -18,7 +18,6 @@ interface Props {
   runStatus?: RunStatus | string;
   warnings?: string[];
   rawTaskCount?: number;
-  rawTaskWindowDays?: number;
   agentTaskCount?: number;
   rawTaskDbConfigured?: boolean;
   slackSignalCount?: number;
@@ -31,7 +30,6 @@ export function SourceMetaPanel({
   runStatus,
   warnings = [],
   rawTaskCount,
-  rawTaskWindowDays = 7,
   agentTaskCount,
   rawTaskDbConfigured = false,
   slackSignalCount,
@@ -41,6 +39,12 @@ export function SourceMetaPanel({
   const isPartial = runStatus === "partial";
   const hasKpi = metrics && KPI_CHIPS.some(({ key }) => metrics[key] !== undefined);
   const showKpiBar = hasKpi || (confirmCount !== undefined && confirmCount > 0);
+
+  // Agent 판단 기간 결정
+  const agentDays =
+    sourceMeta?.override_lookback_days ??
+    sourceMeta?.default_lookback_days ??
+    sourceMeta?.lookback_days;
 
   return (
     <div className="mt-4 space-y-2">
@@ -57,65 +61,75 @@ export function SourceMetaPanel({
         </div>
       )}
 
-      {/* 데이터 출처 + KPI 칩 바 */}
+      {/* 두 영역 분리: Agent 판단 기준 | 원본 작업 기준 */}
       <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-2.5">
-        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-gray-600">
-          <span className="flex items-center gap-1">
-            <span className="text-gray-400">업무 원본</span>
-            {rawTaskDbConfigured ? (
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-gray-600">
+
+          {/* ── Agent 판단 기준 ── */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0">
+              Agent 판단
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-gray-400">출처</span>
               <strong className="text-gray-700">
-                Notion 팀 작업 현황
-                {rawTaskCount !== undefined && ` (${rawTaskCount}건)`}
+                Notion 업무현황 요약
+                {agentTaskCount !== undefined && agentTaskCount > 0 && ` (${agentTaskCount}건)`}
               </strong>
+            </span>
+            {agentDays !== undefined && (
+              <span>
+                기준 기간 <strong className="text-gray-700">최근 {agentDays}일</strong>
+              </span>
+            )}
+            {(sourceMeta?.window_start || sourceMeta?.window_end) && (
+              <span>
+                <strong className="text-gray-700">
+                  {sourceMeta.window_start ?? "?"} ~ {sourceMeta.window_end ?? "?"}
+                </strong>
+              </span>
+            )}
+            {sourceMeta?.notion_items !== undefined && (
+              <span>Notion <strong className="text-gray-700">{sourceMeta.notion_items}건</strong></span>
+            )}
+            {sourceMeta?.slack_messages !== undefined && (
+              <span>Slack <strong className="text-gray-700">{sourceMeta.slack_messages}건</strong></span>
+            )}
+            {slackSignalCount !== undefined && slackSignalCount > 0 && sourceMeta?.slack_messages === undefined && (
+              <span>Slack 신호 <strong className="text-gray-700">{slackSignalCount}건</strong></span>
+            )}
+            {sourceMeta?.retrieval_mode && (
+              <span>
+                수집 <strong className="text-gray-700">
+                  {RETRIEVAL_LABEL[sourceMeta.retrieval_mode] ?? sourceMeta.retrieval_mode}
+                </strong>
+              </span>
+            )}
+          </div>
+
+          {/* 구분선 */}
+          <span className="hidden sm:block text-gray-300 self-stretch border-l border-gray-200" />
+
+          {/* ── 원본 작업 기준 ── */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0">
+              원본 작업
+            </span>
+            {rawTaskDbConfigured ? (
+              <span className="flex items-center gap-1">
+                <span className="text-gray-400">DB</span>
+                <strong className="text-gray-700">
+                  Notion 팀 작업 현황
+                  {rawTaskCount !== undefined && ` (${rawTaskCount}건)`}
+                </strong>
+              </span>
             ) : (
               <span className="text-amber-600 font-medium">미설정 — NOTION_TASK_DATABASE_ID 필요</span>
             )}
-          </span>
-
-          {/* rawTasks 조회 기간 — 항상 표시 */}
-          {rawTaskDbConfigured && (
-            <span>
-              조회 기간 <strong className="text-gray-700">최근 {rawTaskWindowDays}일</strong>
-            </span>
-          )}
-
-          <span className="flex items-center gap-1">
-            <span className="text-gray-400">판단 원본</span>
-            <strong className="text-gray-700">
-              Notion 업무현황 요약
-              {agentTaskCount !== undefined && agentTaskCount > 0 && ` (tasks ${agentTaskCount}건)`}
-            </strong>
-          </span>
-
-          {/* Agent 분석 기간 — rawTask 기간과 다를 때만 추가 표시 */}
-          {sourceMeta?.lookback_days !== undefined && sourceMeta.lookback_days !== rawTaskWindowDays && (
-            <span>Agent 분석 <strong className="text-gray-700">최근 {sourceMeta.lookback_days}일</strong></span>
-          )}
-          {(sourceMeta?.window_start || sourceMeta?.window_end) && (
-            <span>
-              Agent 기간{" "}
-              <strong className="text-gray-700">
-                {sourceMeta.window_start ?? "?"} ~ {sourceMeta.window_end ?? "?"}
-              </strong>
-            </span>
-          )}
-          {sourceMeta?.notion_items !== undefined && (
-            <span>Agent Notion <strong className="text-gray-700">{sourceMeta.notion_items}건</strong></span>
-          )}
-          {sourceMeta?.slack_messages !== undefined && (
-            <span>Slack 신호 <strong className="text-gray-700">{sourceMeta.slack_messages}건</strong></span>
-          )}
-          {slackSignalCount !== undefined && slackSignalCount > 0 && (
-            <span>Slack 시그널 <strong className="text-gray-700">{slackSignalCount}건</strong></span>
-          )}
-          {sourceMeta?.retrieval_mode && (
-            <span>
-              수집 방식{" "}
-              <strong className="text-gray-700">
-                {RETRIEVAL_LABEL[sourceMeta.retrieval_mode] ?? sourceMeta.retrieval_mode}
-              </strong>
-            </span>
-          )}
+            {rawTaskDbConfigured && (
+              <span className="text-gray-400">필터는 아래 테이블에서 선택</span>
+            )}
+          </div>
         </div>
 
         {/* KPI 칩 바 */}

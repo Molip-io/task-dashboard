@@ -164,6 +164,9 @@ export interface SourceMetaV2 {
   window_start?: string;
   window_end?: string;
   lookback_days?: number;
+  default_lookback_days?: number;
+  override_lookback_days?: number;
+  project_lookback_days?: number;
   retrieval_mode?: string;
   notion_items?: number;
   slack_messages?: number;
