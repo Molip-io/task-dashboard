@@ -70,9 +70,16 @@ export function TrendSummary({ trend }: { trend?: Trend }) {
   const changes  = trend.status_changes                ?? [];
   const risks    = (trend.repeated_risks               ?? []) as Array<string | AnyRecord>;
 
-  const changeTexts = changes.map((c) =>
-    typeof c === "string" ? c : `${c.target}: ${c.from} → ${c.to}`
-  ).filter(Boolean);
+  const projectChanges = (trend.project_changes ?? [])
+    .filter((c) => c.change !== "stable")
+    .map((c) => `${c.project}: ${c.previous_status} → ${c.current_status}`);
+
+  const changeTexts = [
+    ...changes.map((c) =>
+      typeof c === "string" ? c : `${c.target}: ${c.from} → ${c.to}`
+    ),
+    ...projectChanges,
+  ].filter(Boolean);
 
   const riskTexts = risks.map((r) =>
     typeof r === "string" ? r.trim() : itemText(r as AnyRecord)
@@ -84,7 +91,8 @@ export function TrendSummary({ trend }: { trend?: Trend }) {
     newItems.some((x) => itemText(x)) ||
     changeTexts.length ||
     riskTexts.length ||
-    resolved.some((x) => itemText(x));
+    resolved.some((x) => itemText(x)) ||
+    trend.summary;
 
   return (
     <section className="mt-8">
@@ -98,10 +106,12 @@ export function TrendSummary({ trend }: { trend?: Trend }) {
           </p>
         )}
 
-        {trend.recommended_focus && (
+        {(trend.recommended_focus || trend.summary) && (
           <div className="rounded-lg bg-indigo-50 border border-indigo-100 px-4 py-3">
             <p className="text-xs font-semibold text-indigo-600 mb-1">이번 주 집중 포커스</p>
-            <p className="text-sm text-indigo-900 leading-relaxed">{trend.recommended_focus}</p>
+            <p className="text-sm text-indigo-900 leading-relaxed">
+              {trend.recommended_focus ?? trend.summary}
+            </p>
           </div>
         )}
 

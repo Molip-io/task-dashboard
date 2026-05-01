@@ -208,6 +208,13 @@ export interface TrendStatusChange {
   to: string;
 }
 
+export interface TrendProjectChange {
+  project: string;
+  previous_status: string;
+  current_status: string;
+  change: string;
+}
+
 export interface Trend {
   previous_run_id?: string;
   previous_date?: string;
@@ -216,7 +223,10 @@ export interface Trend {
   carried_over_attention_items?: Array<AttentionItemV2 | string>;
   resolved_attention_items?: Array<AttentionItemV2 | string>;
   status_changes?: Array<TrendStatusChange | string>;
+  project_changes?: TrendProjectChange[];
   repeated_risks?: string[];
+  summary?: string;
+  overall_change?: string;
 }
 
 /** V2 payload — overview 중심 운영 판단 구조 */
