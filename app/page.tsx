@@ -24,10 +24,22 @@ import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView"
 
 export const revalidate = 60;
 
-const RAW_TASK_WINDOW_DAYS = 7;
+// LOOKBACK_DAYS env로 재정의 가능 (기본 7일)
+const RAW_TASK_WINDOW_DAYS = parseInt(process.env.LOOKBACK_DAYS ?? "7", 10);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+// Slack 신호 중복 제거 — type + summary + related_workstream + related_task 기준
+function dedupeSignals(signals: SlackSignal[]): SlackSignal[] {
+  const seen = new Set<string>();
+  return signals.filter((s) => {
+    const key = `${s.type}|${s.summary}|${s.related_workstream ?? ""}|${s.related_task ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // Slack 신호를 project_progress 항목에 연결 — project 필드 매칭
@@ -50,10 +62,10 @@ function distributeSlackSignals(
 
   const enriched = projectProgress.map((pp) => ({
     ...pp,
-    slack_signals: [
+    slack_signals: dedupeSignals([
       ...(pp.slack_signals ?? []),
       ...(byProject.get(pp.project) ?? []),
-    ],
+    ]),
   }));
 
   return { enriched, unlinked };

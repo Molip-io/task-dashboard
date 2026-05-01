@@ -269,13 +269,23 @@ export async function getTasksFromNotion(lookbackDays = 7): Promise<DashboardTas
         cache: "no-store",
       });
     } catch (err) {
-      console.error("[notion-tasks] fetch failed:", err);
+      if (allTasks.length === 0) throw new Error(`네트워크 오류: ${err instanceof Error ? err.message : String(err)}`);
       break;
     }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error(`[notion-tasks] API ${res.status}:`, text.slice(0, 200));
+      const snippet = text.slice(0, 120);
+      if (allTasks.length === 0) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(`permission denied (${res.status}): Notion Integration이 DB에 접근할 수 없습니다. ${snippet}`);
+        }
+        if (res.status === 404) {
+          throw new Error(`query failed (404): NOTION_TASK_DATABASE_ID를 확인하세요. ${snippet}`);
+        }
+        throw new Error(`query failed (${res.status}): ${snippet}`);
+      }
+      console.error(`[notion-tasks] API ${res.status}:`, snippet);
       break;
     }
 

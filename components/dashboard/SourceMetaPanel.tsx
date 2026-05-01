@@ -72,7 +72,8 @@ export function SourceMetaPanel({
             )}
           </span>
 
-          {sourceMeta?.lookback_days === undefined && rawTaskDbConfigured && (
+          {/* rawTasks 조회 기간 — 항상 표시 */}
+          {rawTaskDbConfigured && (
             <span>
               조회 기간 <strong className="text-gray-700">최근 {rawTaskWindowDays}일</strong>
             </span>
@@ -86,12 +87,13 @@ export function SourceMetaPanel({
             </strong>
           </span>
 
-          {sourceMeta?.lookback_days !== undefined && (
-            <span>조회 기간 <strong className="text-gray-700">최근 {sourceMeta.lookback_days}일</strong></span>
+          {/* Agent 분석 기간 — rawTask 기간과 다를 때만 추가 표시 */}
+          {sourceMeta?.lookback_days !== undefined && sourceMeta.lookback_days !== rawTaskWindowDays && (
+            <span>Agent 분석 <strong className="text-gray-700">최근 {sourceMeta.lookback_days}일</strong></span>
           )}
           {(sourceMeta?.window_start || sourceMeta?.window_end) && (
             <span>
-              기간{" "}
+              Agent 기간{" "}
               <strong className="text-gray-700">
                 {sourceMeta.window_start ?? "?"} ~ {sourceMeta.window_end ?? "?"}
               </strong>
