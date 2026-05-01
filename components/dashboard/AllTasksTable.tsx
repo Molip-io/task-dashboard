@@ -54,44 +54,42 @@ function OwnerPills({ owners }: { owners: string[] }) {
   );
 }
 
-// 오류 메시지 파싱 → 코드 + 설명
-function parseError(fetchError?: string, rawTaskDbConfigured?: boolean): { title: string; body: string } {
+// 오류 메시지 파싱 → 제목 + 줄 목록
+function parseError(fetchError?: string, rawTaskDbConfigured?: boolean): { title: string; lines: string[] } {
   if (!rawTaskDbConfigured || fetchError?.startsWith("env_missing:")) {
     return {
       title: "env 미설정",
-      body: "NOTION_TASK_DATABASE_ID 환경변수를 설정하세요.",
+      lines: ["NOTION_TASK_DATABASE_ID 환경변수를 설정하세요."],
     };
   }
   if (fetchError?.startsWith("token_missing:")) {
     return {
       title: "token 미설정",
-      body: "NOTION_TOKEN 환경변수를 설정하세요.",
+      lines: ["NOTION_TOKEN 환경변수를 설정하세요."],
     };
   }
   if (fetchError?.match(/permission.denied|403|unauthorized/i)) {
     return {
       title: "Notion API 권한 없음",
-      body: `Notion Integration을 '😃 팀 작업 현황' DB에 공유해주세요. (${fetchError})`,
+      lines: ["Notion Integration을 '😃 팀 작업 현황' DB에 공유해주세요."],
     };
   }
-  if (fetchError?.startsWith("notion_404:")) {
+  if (fetchError?.startsWith("notion_404:") || fetchError?.match(/404|database_not_found/i)) {
     return {
-      title: "Notion DB 접근 불가 (404)",
-      body: "DB ID는 맞지만 Notion integration 공유가 안 됐을 수 있습니다. Notion '😃 팀 작업 현황' DB → Share → Connections에서 Vercel integration을 추가하세요. 또는 NOTION_TASK_DATABASE_ID가 올바른 database ID(ad7f7eab...)인지 확인하세요.",
-    };
-  }
-  if (fetchError?.match(/404|database_not_found/i)) {
-    return {
-      title: "DB 없음 (404)",
-      body: "rawTasks 조회 실패: NOTION_TASK_DATABASE_ID에 database ID(ad7f7eab...)를 설정해야 합니다. data source ID(3e7e5c84...)는 databases.query에 사용할 수 없습니다. Notion integration 공유 여부도 확인하세요.",
+      title: "DB 접근 실패",
+      lines: [
+        "`😃 팀 작업 현황` DB ID는 설정되어 있지만, Notion integration 권한이 없을 수 있습니다.",
+        "Notion `😃 팀 작업 현황` → Share → Connections에서 Vercel Notion integration을 추가하세요.",
+        "또는 NOTION_TASK_DATABASE_ID가 올바른 database ID인지 확인하세요.",
+      ],
     };
   }
   if (fetchError) {
-    return { title: "조회 오류", body: fetchError };
+    return { title: "조회 오류", lines: [fetchError] };
   }
   return {
     title: "작업 없음",
-    body: "조건에 맞는 작업이 없습니다.",
+    lines: ["조건에 맞는 작업이 없습니다."],
   };
 }
 
@@ -178,12 +176,16 @@ export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, s
   const baseTitle    = sectionTitle ?? "원본 확인: 전체 작업";
 
   if (!tasks.length) {
-    const { title, body } = parseError(fetchError, rawTaskDbConfigured);
+    const { title, lines } = parseError(fetchError, rawTaskDbConfigured);
     return (
       <Section title={baseTitle}>
-        <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="text-xs text-gray-400 mt-1">{body}</p>
+        <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-6 text-center">
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <div className="mt-2 space-y-1">
+            {lines.map((line, i) => (
+              <p key={i} className="text-xs text-gray-500">{line}</p>
+            ))}
+          </div>
         </div>
       </Section>
     );
