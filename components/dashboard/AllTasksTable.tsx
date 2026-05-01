@@ -44,7 +44,14 @@ function OwnerPills({ owners }: { owners: string[] }) {
   );
 }
 
-export function AllTasksTable({ tasks }: { tasks: DashboardTask[] }) {
+interface AllTasksTableProps {
+  tasks: DashboardTask[];
+  fetchError?: string;
+  rawTaskDbConfigured?: boolean;
+  sectionTitle?: string;
+}
+
+export function AllTasksTable({ tasks, fetchError, rawTaskDbConfigured = true, sectionTitle }: AllTasksTableProps) {
   const [filters, setFilters] = useState<Filters>({
     project: "", owner: "", team: "", status: "", priority: "",
   });
@@ -98,13 +105,24 @@ export function AllTasksTable({ tasks }: { tasks: DashboardTask[] }) {
   const overdueCount = filtered.filter((t) => t.is_overdue).length;
 
   if (!tasks.length) {
+    const title = sectionTitle ?? "원본 확인: 전체 작업";
+    let emptyTitle = "조건에 맞는 작업 없음";
+    let emptyBody = "7일 이내 미완료 작업이 없습니다.";
+    if (!rawTaskDbConfigured) {
+      emptyTitle = "env 미설정";
+      emptyBody = "NOTION_TASK_DATABASE_ID 환경변수를 설정하세요.";
+    } else if (fetchError?.match(/403|permission|unauthorized/i)) {
+      emptyTitle = "Notion API 권한 없음";
+      emptyBody = fetchError;
+    } else if (fetchError) {
+      emptyTitle = "조회 오류";
+      emptyBody = fetchError;
+    }
     return (
-      <Section title="전체 작업">
+      <Section title={title}>
         <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
-          <p className="text-sm text-gray-500">수집된 작업이 없습니다.</p>
-          <p className="text-xs text-gray-400 mt-1">
-            NOTION_TASK_DATABASE_ID 환경변수를 설정하면 전체 작업이 여기에 표시됩니다.
-          </p>
+          <p className="text-sm font-medium text-gray-500">{emptyTitle}</p>
+          <p className="text-xs text-gray-400 mt-1">{emptyBody}</p>
         </div>
       </Section>
     );
@@ -123,12 +141,13 @@ export function AllTasksTable({ tasks }: { tasks: DashboardTask[] }) {
     </select>
   );
 
-  const sectionTitle = overdueCount > 0
-    ? `전체 작업 (${filtered.length}) — 마감 초과 ${overdueCount}건 ⚠`
-    : `전체 작업 (${filtered.length})`;
+  const baseTitle = sectionTitle ?? "원본 확인: 전체 작업";
+  const displayTitle = overdueCount > 0
+    ? `${baseTitle} (${filtered.length}) — 마감 초과 ${overdueCount}건 ⚠`
+    : `${baseTitle} (${filtered.length})`;
 
   return (
-    <Section title={sectionTitle}>
+    <Section title={displayTitle}>
       {/* 필터 바 */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <Select filterKey="project"  options={options.projects}   label="전체 프로젝트" />

@@ -7,6 +7,7 @@ import {
   buildTeams,
   buildOwners,
 } from "@/lib/notion-tasks";
+import type { DashboardTask } from "@/lib/notion-tasks";
 import { buildProjectProgressFallback } from "@/lib/project-progress";
 import { isV2Payload, isV1Payload } from "@/lib/types";
 import type { WorkStatusPayloadV2, WorkStatusPayload, SlackSignal, ProjectProgress } from "@/lib/types";
@@ -14,15 +15,12 @@ import type { WorkStatusPayloadV2, WorkStatusPayload, SlackSignal, ProjectProgre
 import { DashboardHeader }     from "@/components/dashboard/DashboardHeader";
 import { WarningErrorPanel }   from "@/components/dashboard/WarningErrorPanel";
 import { SourceMetaPanel }     from "@/components/dashboard/SourceMetaPanel";
-import { OverviewMetricsGrid } from "@/components/dashboard/OverviewMetricsGrid";
-import { AttentionList }       from "@/components/dashboard/AttentionList";
 import { AllTasksTable }       from "@/components/dashboard/AllTasksTable";
-import { TeamOwnerSummary }    from "@/components/dashboard/TeamOwnerSummary";
+import { TeamOwnerSummary, OwnerAlertSummary } from "@/components/dashboard/TeamOwnerSummary";
 import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
 import { TrendSummary }        from "@/components/dashboard/TrendSummary";
 import { LegacyResultsView }   from "@/components/dashboard/LegacyResultsView";
 import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView";
-import { Section }             from "@/components/dashboard/shared";
 
 export const revalidate = 60;
 
@@ -133,12 +131,17 @@ async function fetchJudgment(): Promise<{
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default async function HomePage() {
-  const [judgment, rawTasks] = await Promise.all([
+  let rawTasks: DashboardTask[] = [];
+  let rawTaskFetchError: string | undefined;
+
+  const [judgment] = await Promise.all([
     fetchJudgment(),
-    getTasksFromNotion(RAW_TASK_WINDOW_DAYS).catch((e) => {
-      console.error("[page] getTasksFromNotion failed:", e);
-      return [];
-    }),
+    getTasksFromNotion(RAW_TASK_WINDOW_DAYS)
+      .then((tasks) => { rawTasks = tasks; })
+      .catch((e: unknown) => {
+        console.error("[page] getTasksFromNotion failed:", e);
+        rawTaskFetchError = e instanceof Error ? e.message : "알 수 없는 오류";
+      }),
   ]);
 
   const {
@@ -180,6 +183,11 @@ export default async function HomePage() {
   const { enriched: projectProgress, unlinked: unlinkedSignals } =
     distributeSlackSignals(baseProgress, allSignals);
 
+  // 오늘 확인 요약 건수 (project_progress 카드들의 needs_confirmation 합산)
+  const confirmCount = projectProgress.reduce(
+    (n, pp) => n + (pp.needs_confirmation?.length ?? 0), 0
+  );
+
   // debug
   const parsedTopLevelKeys = data
     ? (payloadDebug?.parsed_top_level_keys?.length
@@ -188,6 +196,10 @@ export default async function HomePage() {
     : [];
   const debugOverviewExists = payloadDebug?.overview_exists ?? hasOverview;
   const debugResultsExists  = data ? (payloadDebug?.results_exists ?? ("results" in data)) : false;
+
+  // owners / teams 결정 (rawTasks 우선, 없으면 v2 fallback)
+  const effectiveOwners = rawOwners.length ? rawOwners : (v2?.owners ?? []);
+  const effectiveTeams  = rawTeams.length  ? rawTeams  : (v2?.teams  ?? []);
 
   // Empty state
   if (!data && rawTasks.length === 0) {
@@ -227,12 +239,7 @@ export default async function HomePage() {
           errorCount={v2?.errors?.length ?? 0}
         />
 
-        {/* 오류 패널 */}
-        <WarningErrorPanel
-          errors={v2?.errors ?? (fetchError ? [fetchError] : [])}
-        />
-
-        {/* 2. 수집 상태 카드 */}
+        {/* 2. 수집 상태 + 작은 KPI */}
         <SourceMetaPanel
           sourceMeta={v2?.source_meta}
           runStatus={status}
@@ -242,6 +249,8 @@ export default async function HomePage() {
           agentTaskCount={v2?.tasks?.length}
           rawTaskDbConfigured={rawTaskDbConfigured}
           slackSignalCount={allSignals.length}
+          metrics={rawKPI}
+          confirmCount={confirmCount > 0 ? confirmCount : undefined}
         />
 
         {/* ── rawTasks만 있을 때 (v2/v1 없음) ─────────────────────────── */}
@@ -251,55 +260,60 @@ export default async function HomePage() {
               items={buildProjectProgressFallback(rawTasks)}
               isFallback
             />
-            <OverviewMetricsGrid metrics={rawKPI} />
-            <AllTasksTable tasks={rawTasks} />
-            <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+            <OwnerAlertSummary owners={rawOwners} />
+            <AllTasksTable
+              tasks={rawTasks}
+              fetchError={rawTaskFetchError}
+              rawTaskDbConfigured={rawTaskDbConfigured}
+            />
+            <DetailSection>
+              <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+            </DetailSection>
           </>
         )}
 
         {/* ── V2 Dashboard ──────────────────────────────────────────────── */}
         {v2 && (
           <>
-            {/* 3. 프로젝트 진행 현황 */}
+            {/* 3. 이번 주 운영 판단 */}
+            {v2.overview.summary && (
+              <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3 flex items-start gap-3">
+                <span className="shrink-0 text-xs font-bold text-indigo-500 uppercase tracking-wide mt-0.5">
+                  이번 주 운영 판단
+                </span>
+                <p className="text-sm text-indigo-900 leading-relaxed">{v2.overview.summary}</p>
+              </div>
+            )}
+
+            {/* 4. 프로젝트 진행 현황 */}
             <ProjectProgressView
               items={projectProgress}
               isFallback={!agentHasProjectProgress}
             />
 
-            {/* 4. 오늘 확인할 항목 */}
-            <Section title="오늘 확인할 항목">
-              <AttentionList items={v2.overview.top_attention_items ?? []} />
-            </Section>
+            {/* 5. 확인 필요 담당자 */}
+            <OwnerAlertSummary owners={effectiveOwners} />
 
-            {/* 5. 지난 실행 대비 변화 */}
+            {/* 6. 지난 실행 대비 변화 */}
             <TrendSummary trend={v2.trend} />
 
-            {/* 6. 전체 지표 (컴팩트) */}
-            <OverviewMetricsGrid metrics={rawKPI} />
-
-            {/* 7. 전체 작업 테이블 */}
-            <AllTasksTable tasks={rawTasks} />
-
-            {/* 8. 전체 담당자 현황 (rawTasks 기준) */}
-            <TeamOwnerSummary
-              teams={rawTeams.length ? rawTeams : v2.teams}
-              owners={rawOwners.length ? rawOwners : v2.owners}
+            {/* 7. 원본 확인: 전체 작업 */}
+            <AllTasksTable
+              tasks={rawTasks}
+              fetchError={rawTaskFetchError}
+              rawTaskDbConfigured={rawTaskDbConfigured}
             />
 
-            {/* 9. 미연결 Slack 신호 */}
-            <SlackSignalsList
-              signals={unlinkedSignals}
-              title="미연결 Slack 신호"
-            />
-
-            {/* 전체 요약 */}
-            {v2.overview.summary && (
-              <Section title="전체 요약">
-                <p className="text-sm text-gray-700 leading-relaxed bg-white rounded-xl border border-gray-100 p-4">
-                  {v2.overview.summary}
-                </p>
-              </Section>
-            )}
+            {/* 8. 상세: 전체 담당자 / 전체 Slack / warnings·errors */}
+            <DetailSection>
+              <TeamOwnerSummary teams={effectiveTeams} owners={effectiveOwners} />
+              {unlinkedSignals.length > 0 && (
+                <SlackSignalsList signals={unlinkedSignals} title="미연결 Slack 신호" />
+              )}
+              <WarningErrorPanel
+                errors={v2.errors ?? (fetchError ? [fetchError] : [])}
+              />
+            </DetailSection>
           </>
         )}
 
@@ -312,9 +326,15 @@ export default async function HomePage() {
                   items={buildProjectProgressFallback(rawTasks)}
                   isFallback
                 />
-                <OverviewMetricsGrid metrics={rawKPI} />
-                <AllTasksTable tasks={rawTasks} />
-                <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+                <OwnerAlertSummary owners={rawOwners} />
+                <AllTasksTable
+                  tasks={rawTasks}
+                  fetchError={rawTaskFetchError}
+                  rawTaskDbConfigured={rawTaskDbConfigured}
+                />
+                <DetailSection>
+                  <TeamOwnerSummary teams={rawTeams} owners={rawOwners} />
+                </DetailSection>
               </>
             )}
             <LegacyResultsView results={v1.results} />
@@ -349,5 +369,22 @@ export default async function HomePage() {
 
       </div>
     </main>
+  );
+}
+
+// ── 상세 보기 접힘 영역 ───────────────────────────────────────────────────────
+
+function DetailSection({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="mt-10 group">
+      <summary className="cursor-pointer inline-flex items-center gap-2 text-xs font-semibold text-gray-400 hover:text-gray-600 select-none list-none py-1">
+        <span className="group-open:hidden">▸</span>
+        <span className="hidden group-open:inline">▾</span>
+        <span>상세 보기 (전체 담당자 · Slack · 오류/경고)</span>
+      </summary>
+      <div className="mt-2">
+        {children}
+      </div>
+    </details>
   );
 }

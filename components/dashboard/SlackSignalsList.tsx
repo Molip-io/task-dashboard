@@ -15,15 +15,7 @@ export function SlackSignalsList({
   signals,
   title = "미연결 Slack 신호",
 }: Props) {
-  if (!signals.length) {
-    return (
-      <Section title={title}>
-        <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-6 text-center">
-          <p className="text-sm text-gray-500">Slack 신호가 없습니다.</p>
-        </div>
-      </Section>
-    );
-  }
+  if (!signals.length) return null;
 
   return (
     <Section title={`${title} (${signals.length})`}>
