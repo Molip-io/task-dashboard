@@ -465,11 +465,16 @@ export function buildOwners(
   tasks: DashboardTask[],
   agentOwners: OwnerStatus[] = []
 ): OwnerStatus[] {
+  const INVALID_OWNER_SET = new Set([
+    "미기록 담당자", "확인 필요 담당자", "담당자 확인 필요",
+    "담당자 미정", "unknown owner", "미기록",
+  ]);
+
   const groups = new Map<string, DashboardTask[]>();
   for (const t of tasks) {
     const ownerList = t.owners.length ? t.owners : [t.owner];
     for (const owner of ownerList) {
-      if (!owner || owner === "미기록 담당자") continue;
+      if (!owner || INVALID_OWNER_SET.has(owner.trim())) continue;
       if (!groups.has(owner)) groups.set(owner, []);
       groups.get(owner)!.push(t);
     }

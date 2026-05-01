@@ -175,12 +175,83 @@ export interface SourceMetaV2 {
 
 // ── Project Progress (프로젝트 진행 현황) ─────────────────────────────────────
 
+// ── v2.3 breakdown types ──────────────────────────────────────────────────────
+
+export interface EvidenceSummary {
+  notion_count?: number;
+  slack_count?: number;
+  confidence?: "low" | "medium" | "high" | "unknown";
+  combined_summary?: string;
+}
+
+export interface TrackBreakdownItem {
+  track: string;
+  status?: string;
+  summary?: string;
+  owners?: string[];
+}
+
+export interface FunctionBreakdownItem {
+  function: string;
+  status?: string;
+  summary?: string;
+  next_action?: string;
+}
+
+export interface OwnerBreakdownItem {
+  owner: string;
+  tasks?: string[];
+  status?: string;
+  summary?: string;
+}
+
+export interface DataConflict {
+  severity?: "low" | "medium" | "high";
+  description: string;
+  notion_state?: string;
+  slack_state?: string;
+}
+
+export interface StaleTask {
+  task_name: string;
+  days_since_update?: number;
+  status?: string;
+  workstream?: string;
+}
+
+export interface ConfirmationQueueItem {
+  project?: string;
+  workstream?: string;
+  function?: string;
+  item: string;
+  owner?: string;
+  owner_status?: "assigned" | "unassigned" | "unknown";
+  requested_action?: string;
+  urgency?: Urgency | string;
+  reason?: string;
+  timing?: "today" | "this_week" | "watch";
+}
+
+export interface CeoActions {
+  today?: string[];
+  this_week?: string[];
+  watch?: string[];
+}
+
 export interface Workstream {
   label: string;
   status?: string;
   items?: string[];
   evidence?: string;
   next_action?: string;
+  // v2.3
+  display_summary?: string;
+  combined_summary?: string;
+  evidence_summary?: EvidenceSummary;
+  track_breakdown?: TrackBreakdownItem[];
+  function_breakdown?: FunctionBreakdownItem[];
+  owner_breakdown?: OwnerBreakdownItem[];
+  slack_signals?: SlackSignal[];
 }
 
 export interface ConfirmationNeeded {
@@ -193,12 +264,20 @@ export interface ConfirmationNeeded {
 export interface ProjectProgress {
   project: string;
   current_summary?: string;
+  display_summary?: string;
   workstreams?: Workstream[];
   next_actions?: string[];
   schedule_notes?: string;
   needs_confirmation?: ConfirmationNeeded[];
+  confirmation_queue?: ConfirmationQueueItem[];
   slack_signals?: SlackSignal[];
   risks?: string[];
+  // v2.3
+  status?: StatusLevel;
+  ceo_actions?: CeoActions;
+  data_conflicts?: DataConflict[];
+  stale_tasks?: StaleTask[];
+  function_breakdown?: FunctionBreakdownItem[];
 }
 
 // ── Trend (run 간 비교) ───────────────────────────────────────────────────────
