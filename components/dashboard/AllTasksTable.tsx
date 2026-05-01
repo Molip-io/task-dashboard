@@ -74,10 +74,16 @@ function parseError(fetchError?: string, rawTaskDbConfigured?: boolean): { title
       body: `Notion Integration을 '😃 팀 작업 현황' DB에 공유해주세요. (${fetchError})`,
     };
   }
+  if (fetchError?.startsWith("notion_404:")) {
+    return {
+      title: "Notion DB 접근 불가 (404)",
+      body: "DB ID는 맞지만 Notion integration 공유가 안 됐을 수 있습니다. Notion '😃 팀 작업 현황' DB → Share → Connections에서 Vercel integration을 추가하세요. 또는 NOTION_TASK_DATABASE_ID가 올바른 database ID(ad7f7eab...)인지 확인하세요.",
+    };
+  }
   if (fetchError?.match(/404|database_not_found/i)) {
     return {
       title: "DB 없음 (404)",
-      body: "rawTasks 조회 실패: NOTION_TASK_DATABASE_ID에 database ID(ad7f7eab...)를 설정해야 합니다. data source ID(3e7e5c84...)는 databases.query에 사용할 수 없습니다. Vercel 환경변수를 확인하세요.",
+      body: "rawTasks 조회 실패: NOTION_TASK_DATABASE_ID에 database ID(ad7f7eab...)를 설정해야 합니다. data source ID(3e7e5c84...)는 databases.query에 사용할 수 없습니다. Notion integration 공유 여부도 확인하세요.",
     };
   }
   if (fetchError) {

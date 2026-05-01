@@ -302,13 +302,28 @@ export async function getTasksFromNotion(lookbackDays = 30): Promise<DashboardTa
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      const snippet = text.slice(0, 120);
+      const snippet = text.slice(0, 200);
+      // Notion 에러 상세 로그 (token 제외)
+      let notionCode = "";
+      try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        notionCode = String(parsed.code ?? "");
+        console.error("[notion-tasks] Notion API error", {
+          status: res.status,
+          code: notionCode,
+          message: String(parsed.message ?? "").slice(0, 200),
+          usingId: maskId(dbId),
+          queryMode: "database_id",
+        });
+      } catch {
+        console.error("[notion-tasks] API error", { status: res.status, snippet });
+      }
       if (allTasks.length === 0) {
         if (res.status === 401 || res.status === 403) {
           throw new Error(`permission denied (${res.status}): Notion Integration이 DB에 접근할 수 없습니다. ${snippet}`);
         }
         if (res.status === 404) {
-          throw new Error(`query failed (404): NOTION_TASK_DATABASE_ID를 확인하세요. ${snippet}`);
+          throw new Error(`notion_404: NOTION_TASK_DATABASE_ID(${maskId(dbId)}) — DB가 없거나 integration 공유가 안 됐습니다. Notion DB → Share → Connections에서 integration을 추가하세요. ${snippet}`);
         }
         throw new Error(`query failed (${res.status}): ${snippet}`);
       }
