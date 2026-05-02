@@ -322,12 +322,23 @@ export function validateDashboardPayload(
     }
   }
 
-  // results present but not array
-  if ("results" in p && !Array.isArray(p.results)) {
-    return {
-      ok: false,
-      error: `results must be an array, got ${typeof p.results}`,
-    };
+  // v1 전용: results 있으면 배열이어야 함
+  // v2 (overview 있음) 에서는 results가 object여도 무시 (warning만)
+  if ("results" in p) {
+    if (!Array.isArray(p.results)) {
+      if (hasOverview) {
+        // v2: results object는 허용 — warn only
+        postWarnings.push(
+          `results ignored (${typeof p.results}) — v2 payload은 overview 기준으로 처리`
+        );
+      } else {
+        // v1: results는 반드시 배열
+        return {
+          ok: false,
+          error: `results must be an array, got ${typeof p.results}`,
+        };
+      }
+    }
   }
 
   return { ok: true, warnings: postWarnings };

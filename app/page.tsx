@@ -269,19 +269,36 @@ export default async function HomePage() {
           confirmCount={confirmCount > 0 ? confirmCount : undefined}
         />
 
-        {/* invalid payload fallback warning */}
+        {/* payload 파싱 실패 배너 */}
         {invalidPayloads && invalidPayloads.length > 0 && (
-          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
-            <p className="font-semibold text-amber-800 mb-1">
-              최신 payload가 파싱에 실패하여 이전 valid payload를 표시합니다.
-            </p>
-            <p className="text-xs text-amber-700 mb-2">
-              조치: 최신 📊 업무현황 요약 page의 payload를 다시 생성해야 합니다.
-            </p>
+          <div className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+            !data
+              ? "bg-red-50 border-red-300"   // 파싱 실패 → Agent 판단 없음
+              : "bg-amber-50 border-amber-200" // fallback 모드 → 이전 payload 사용 중
+          }`}>
+            {!data ? (
+              <>
+                <p className="font-semibold text-red-800 mb-1">
+                  ⚠ 최신 payload 파싱 실패 — Agent 판단 없이 원본 작업 기반으로 표시됩니다.
+                </p>
+                <p className="text-xs text-red-700 mb-2">
+                  조치: Agent를 다시 실행해 최신 payload를 재생성하세요.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold text-amber-800 mb-1">
+                  최신 payload 파싱 실패 — 이전 유효 payload를 표시 중입니다.
+                </p>
+                <p className="text-xs text-amber-700 mb-2">
+                  조치: Agent를 다시 실행해 최신 payload를 재생성하세요.
+                </p>
+              </>
+            )}
             <div className="space-y-1">
               {invalidPayloads.map((p, i) => (
-                <p key={i} className="text-xs font-mono text-amber-600 break-all">
-                  {p.run_id ? `run: ${p.run_id}` : `page: ${p.page_id}`} — {p.error.slice(0, 120)}
+                <p key={i} className={`text-xs font-mono break-all ${!data ? "text-red-600" : "text-amber-600"}`}>
+                  {p.run_id ? `run: ${p.run_id}` : `page: ${p.page_id}`} — {p.error.slice(0, 160)}
                 </p>
               ))}
             </div>

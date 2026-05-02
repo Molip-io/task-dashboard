@@ -348,7 +348,16 @@ function processNotionPage(page: NotionPage): PageProcessResult {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Notion DB에서 최신 후보 10개를 읽어 JSON.parse 가능한 첫 번째 run을 반환.
+ * Notion DB에서 최신 run을 읽어 반환.
+ *
+ * 기본 동작 (ENABLE_LATEST_VALID_PAYLOAD_FALLBACK 미설정):
+ *   - 최신 1개만 조회한다.
+ *   - 파싱 실패 시 이전 valid payload로 조용히 대체하지 않는다.
+ *   - ErrorResult를 반환하고 UI에서 명확한 오류를 표시한다.
+ *
+ * fallback 허용 (ENABLE_LATEST_VALID_PAYLOAD_FALLBACK=true):
+ *   - 최신 10개를 조회해 첫 번째 valid payload를 사용한다.
+ *   - 개발/디버그 환경에서만 권장.
  *
  * 반환값:
  *   { run, payloadDebug, invalid_payloads? } — 성공
@@ -362,7 +371,10 @@ export async function getLatestRunFromNotion(): Promise<
   const dbId = process.env.NOTION_WORK_STATUS_SUMMARY_DATABASE_ID;
   if (!token || !dbId) return null;
 
-  // 최신 후보 10개 조회
+  const enableFallback =
+    process.env.ENABLE_LATEST_VALID_PAYLOAD_FALLBACK === "true";
+  const pageSize = enableFallback ? 10 : 1;
+
   let res: Response;
   try {
     res = await fetch(`${NOTION_API}/databases/${dbId}/query`, {
@@ -373,7 +385,7 @@ export async function getLatestRunFromNotion(): Promise<
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        page_size: 10,
+        page_size: pageSize,
         sorts: [
           { property: "기준일", direction: "descending" },
           { timestamp: "created_time", direction: "descending" },
@@ -395,14 +407,45 @@ export async function getLatestRunFromNotion(): Promise<
   const json = (await res.json()) as { results: NotionPage[] };
   if (!json.results.length) return null; // 데이터 없음 → Supabase fallback
 
-  // 각 페이지를 순서대로 시도 — 첫 번째 valid payload 사용
+  // ── 기본 모드: 최신 1개만 처리 ───────────────────────────────────────────
+
+  if (!enableFallback) {
+    const page = json.results[0];
+    const result = processNotionPage(page);
+
+    if (result.ok) {
+      return { run: result.run, payloadDebug: result.payloadDebug };
+    }
+
+    // 최신 payload 파싱 실패 → 이전 valid로 대체하지 않고 즉시 에러 반환
+    const runLabel = result.runIdHint ?? page.id;
+    console.error(`[notion-summary] latest payload invalid (${runLabel}): ${result.error}`);
+
+    return {
+      error: [
+        `최신 payload 파싱 실패 (run: ${runLabel})`,
+        `오류: ${result.error}`,
+        `조치: Agent를 다시 실행해 최신 payload를 재생성하세요.`,
+      ].join("\n"),
+      invalid_payloads: [
+        {
+          page_id: page.id,
+          run_id: result.runIdHint ?? null,
+          error: result.error,
+        },
+      ],
+    };
+  }
+
+  // ── fallback 모드 (ENABLE_LATEST_VALID_PAYLOAD_FALLBACK=true) ─────────────
+  // 최신 10개 중 첫 번째 valid payload 사용 — 개발/디버그 전용
+
   const invalidPayloads: InvalidPayloadInfo[] = [];
 
   for (const page of json.results) {
     const result = processNotionPage(page);
 
     if (result.ok) {
-      // valid payload 발견
       return {
         run: result.run,
         payloadDebug: result.payloadDebug,
@@ -410,7 +453,6 @@ export async function getLatestRunFromNotion(): Promise<
       };
     }
 
-    // 이 페이지는 깨진 payload — 기록하고 다음 페이지로
     console.warn(`[notion-summary] page ${page.id} invalid: ${result.error}`);
     invalidPayloads.push({
       page_id: page.id,
@@ -419,9 +461,9 @@ export async function getLatestRunFromNotion(): Promise<
     });
   }
 
-  // 모든 후보가 실패
+  // 모든 후보 실패
   return {
-    error: `최근 ${json.results.length}개 업무현황 요약의 payload가 모두 파싱 불가합니다. Agent를 다시 실행해 valid payload를 생성해야 합니다.`,
+    error: `최근 ${json.results.length}개 payload가 모두 파싱 불가합니다. Agent를 다시 실행해 valid payload를 생성하세요.`,
     invalid_payloads: invalidPayloads,
   };
 }
