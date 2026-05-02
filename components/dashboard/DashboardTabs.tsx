@@ -5,9 +5,7 @@ import { TodayTab }            from "./TodayTab";
 import { ProjectProgressView } from "./ProjectProgressView";
 import { OwnersTab }           from "./OwnersTab";
 import { ChangesTab }          from "./ChangesTab";
-import { AllTasksTable }       from "./AllTasksTable";
-import { SlackSignalsList }    from "./SlackSignalsList";
-import { WarningErrorPanel }   from "./WarningErrorPanel";
+import { RawDataTab }          from "./RawDataTab";
 
 import type {
   CeoAction,
@@ -18,8 +16,10 @@ import type {
   Trend,
   SlackSignal,
   PriorityProject,
+  SourceMetaV2,
 } from "@/lib/types";
 import type { DashboardTask } from "@/lib/notion-tasks";
+import type { NotionPayloadDebug } from "@/lib/notion-summary";
 
 // ── 탭 정의 ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +66,18 @@ export interface DashboardTabsProps {
   rawTaskFetchError?: string;
   rawTaskDbConfigured: boolean;
   unlinkedSignals: SlackSignal[];
+  allSignals?: SlackSignal[];
   errors: string[];
+  warnings?: string[];
+  sourceMeta?: SourceMetaV2;
+  payloadDebug?: NotionPayloadDebug;
+  // 수집 상태 요약용
+  source?: string;
+  runStatus?: string;
+  agentTaskCount?: number;
+  slackSignalCount?: number;
+  generatedBy?: string;
+  createdAt?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -142,24 +153,25 @@ function ChangesTabPanel({ trend }: DashboardTabsProps) {
   return <ChangesTab trend={trend} />;
 }
 
-function RawTab({
-  rawTasks,
-  rawTaskFetchError,
-  rawTaskDbConfigured,
-  unlinkedSignals,
-  errors,
-}: DashboardTabsProps) {
+function RawTab(props: DashboardTabsProps) {
   return (
-    <div className="space-y-4">
-      <AllTasksTable
-        tasks={rawTasks}
-        fetchError={rawTaskFetchError}
-        rawTaskDbConfigured={rawTaskDbConfigured}
-      />
-      {unlinkedSignals.length > 0 && (
-        <SlackSignalsList signals={unlinkedSignals} title="미연결 Slack 신호" />
-      )}
-      <WarningErrorPanel errors={errors} />
-    </div>
+    <RawDataTab
+      source={props.source}
+      runStatus={props.runStatus}
+      rawTaskCount={props.rawTasks.length}
+      rawTaskDbConfigured={props.rawTaskDbConfigured}
+      agentTaskCount={props.agentTaskCount}
+      slackSignalCount={props.slackSignalCount}
+      generatedBy={props.generatedBy}
+      createdAt={props.createdAt}
+      rawTasks={props.rawTasks}
+      rawTaskFetchError={props.rawTaskFetchError}
+      unlinkedSignals={props.unlinkedSignals}
+      allSignals={props.allSignals}
+      warnings={props.warnings}
+      errors={props.errors}
+      sourceMeta={props.sourceMeta}
+      payloadDebug={props.payloadDebug}
+    />
   );
 }

@@ -330,7 +330,17 @@ export default async function HomePage() {
             rawTaskFetchError={rawTaskFetchError}
             rawTaskDbConfigured={rawTaskDbConfigured}
             unlinkedSignals={unlinkedSignals}
+            allSignals={allSignals}
             errors={v2.errors ?? (fetchError ? [fetchError] : [])}
+            warnings={v2.warnings}
+            sourceMeta={v2.source_meta}
+            payloadDebug={payloadDebug}
+            source={source}
+            runStatus={status}
+            agentTaskCount={v2?.tasks?.length}
+            slackSignalCount={allSignals.length}
+            generatedBy={generatedBy ?? v2?.source_meta?.generated_by}
+            createdAt={createdAt}
           />
         )}
 
