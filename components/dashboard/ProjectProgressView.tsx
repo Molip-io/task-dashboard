@@ -246,10 +246,10 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
   const notionCount = ws.evidence_summary?.notion_count ?? 0;
   const slackCount = ws.evidence_summary?.slack_count ?? 0;
   const confidence = ws.evidence_summary?.confidence;
-  const tracks = ws.track_breakdown ?? [];
-  const functions = ws.function_breakdown ?? [];
-  const ownerBreakdown = ws.owner_breakdown ?? [];
-  const inlineSignals = ws.slack_signals ?? [];
+  const tracks = Array.isArray(ws.track_breakdown) ? ws.track_breakdown : [];
+  const functions = Array.isArray(ws.function_breakdown) ? ws.function_breakdown : [];
+  const ownerBreakdown = Array.isArray(ws.owner_breakdown) ? ws.owner_breakdown : [];
+  const inlineSignals = Array.isArray(ws.slack_signals) ? ws.slack_signals : [];
 
   return (
     <div className="border-l-2 border-gray-200 pl-3 py-1">
@@ -295,11 +295,11 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
 
 function CeoActionsSection({ pp }: { pp: ProjectProgress }) {
   const ceoActions = pp.ceo_actions;
-  const confirmQueue = pp.confirmation_queue ?? [];
+  const confirmQueue = Array.isArray(pp.confirmation_queue) ? pp.confirmation_queue : [];
 
-  const todayItems  = ceoActions?.today      ?? confirmQueue.filter((c) => c.timing === "today").map((c) => c.item);
-  const weekItems   = ceoActions?.this_week  ?? confirmQueue.filter((c) => c.timing === "this_week").map((c) => c.item);
-  const watchItems  = ceoActions?.watch      ?? confirmQueue.filter((c) => c.timing === "watch").map((c) => c.item);
+  const todayItems  = Array.isArray(ceoActions?.today)     ? ceoActions!.today     : confirmQueue.filter((c) => c.timing === "today").map((c) => c.item);
+  const weekItems   = Array.isArray(ceoActions?.this_week) ? ceoActions!.this_week : confirmQueue.filter((c) => c.timing === "this_week").map((c) => c.item);
+  const watchItems  = Array.isArray(ceoActions?.watch)     ? ceoActions!.watch     : confirmQueue.filter((c) => c.timing === "watch").map((c) => c.item);
 
   const hasQueueData = todayItems.length > 0 || weekItems.length > 0 || watchItems.length > 0;
   const legacyItems: ConfirmationNeeded[] = !hasQueueData ? (pp.needs_confirmation ?? []) : [];
@@ -438,11 +438,11 @@ function ProjectDetail({ pp, isFallback }: { pp: ProjectProgress; isFallback: bo
     pp.current_summary ??
     (ppAny.summary as string) ??
     "";
-  const workstreams = pp.workstreams ?? [];
-  const risks = pp.risks ?? [];
-  const nextActions = pp.next_actions ?? [];
-  const dataConflicts = pp.data_conflicts ?? [];
-  const staleTasks = pp.stale_tasks ?? [];
+  const workstreams = Array.isArray(pp.workstreams) ? pp.workstreams : [];
+  const risks = Array.isArray(pp.risks) ? pp.risks : [];
+  const nextActions = Array.isArray(pp.next_actions) ? pp.next_actions : [];
+  const dataConflicts = Array.isArray(pp.data_conflicts) ? pp.data_conflicts : [];
+  const staleTasks = Array.isArray(pp.stale_tasks) ? pp.stale_tasks : [];
 
   return (
     <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm flex-1 min-w-0">

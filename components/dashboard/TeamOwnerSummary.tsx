@@ -38,7 +38,8 @@ function MetricRow({ metrics }: { metrics: Record<string, number> }) {
 // ── 확인 필요 담당자 (상단 요약 전용 — Agent payload 기준) ────────────────────
 
 export function OwnerAlertSummary({ owners }: { owners: OwnerStatus[] }) {
-  const alertOwners = owners.filter(
+  const safeOwners = Array.isArray(owners) ? owners : [];
+  const alertOwners = safeOwners.filter(
     (o) => o.status === "watch" || o.status === "risk" || o.status === "blocked"
   );
   if (!alertOwners.length) return null;

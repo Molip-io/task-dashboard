@@ -178,17 +178,20 @@ export default async function HomePage() {
 
   // rawTasks 기반 집계
   const rawKPI    = rawTasks.length ? calcKPI(rawTasks) : (v2?.overview?.metrics ?? {});
-  const rawTeams  = buildTeams(rawTasks, v2?.teams ?? []);
-  const rawOwners = buildOwners(rawTasks, v2?.owners ?? []);
+  const v2Teams   = Array.isArray(v2?.teams)   ? v2!.teams!   : [];
+  const v2Owners  = Array.isArray(v2?.owners)  ? v2!.owners!  : [];
+  const rawTeams  = buildTeams(rawTasks, v2Teams);
+  const rawOwners = buildOwners(rawTasks, v2Owners);
 
   // 프로젝트 진행 현황 — Agent payload 우선, 없으면 rawTasks fallback
-  const agentHasProjectProgress = !!(v2?.project_progress?.length);
+  const v2ProjectProgress = Array.isArray(v2?.project_progress) ? v2!.project_progress! : [];
+  const agentHasProjectProgress = v2ProjectProgress.length > 0;
   const baseProgress: ProjectProgress[] = agentHasProjectProgress
-    ? v2!.project_progress!
+    ? v2ProjectProgress
     : buildProjectProgressFallback(rawTasks);
 
   // Slack 신호 → 프로젝트 카드 연결
-  const allSignals = v2?.slack_signals ?? [];
+  const allSignals = Array.isArray(v2?.slack_signals) ? v2!.slack_signals! : [];
   const { enriched: projectProgress, unlinked: unlinkedSignals } =
     distributeSlackSignals(baseProgress, allSignals);
 
@@ -208,11 +211,11 @@ export default async function HomePage() {
 
   // ── Owner 분리
   // A. 확인 필요 담당자 — Agent payload 기준 (status 판단이 있는 것)
-  const alertOwners = v2?.owners ?? [];
+  const alertOwners = v2Owners;
   // B. 전체 작업 담당자 — rawTasks 기준
   const taskOwners  = rawOwners;
   // 팀별 현황 — rawTasks 기준, Agent fallback
-  const effectiveTeams = rawTeams.length ? rawTeams : (v2?.teams ?? []);
+  const effectiveTeams = rawTeams.length ? rawTeams : v2Teams;
 
   // Empty state
   if (!data && rawTasks.length === 0) {
