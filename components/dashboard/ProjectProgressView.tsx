@@ -13,6 +13,7 @@ import type {
   DataConflict,
   StaleTask,
   ConfirmationNeeded,
+  ActionType,
 } from "@/lib/types";
 import { StatusBadge, SignalBadge, Section } from "./shared";
 
@@ -29,26 +30,44 @@ const TRACK_LABELS: Record<string, string> = {
   partner_feedback: "파트너 피드백",
 };
 
+const STATUS_LABELS_KO: Record<string, string> = {
+  normal: "정상", watch: "관찰", risk: "주의", blocked: "막힘",
+};
+
 const WS_STATUS_CLS: Record<string, string> = {
-  "진행 중":   "bg-blue-100 text-blue-700",
-  "완료":      "bg-green-100 text-green-700",
-  "지연":      "bg-red-100 text-red-700",
-  "임박":      "bg-orange-100 text-orange-700",
-  "예정":      "bg-gray-100 text-gray-600",
-  "QA":        "bg-purple-100 text-purple-700",
+  "진행 중":    "bg-blue-100 text-blue-700",
+  "완료":       "bg-green-100 text-green-700",
+  "지연":       "bg-red-100 text-red-700",
+  "임박":       "bg-orange-100 text-orange-700",
+  "예정":       "bg-gray-100 text-gray-600",
+  "QA":         "bg-purple-100 text-purple-700",
   "업로드대기": "bg-yellow-100 text-yellow-700",
-  "리뷰":      "bg-indigo-100 text-indigo-700",
-  "결정 필요": "bg-pink-100 text-pink-700",
-  "착수 전":   "bg-gray-100 text-gray-500",
+  "리뷰":       "bg-indigo-100 text-indigo-700",
+  "결정 필요":  "bg-pink-100 text-pink-700",
+  "착수 전":    "bg-gray-100 text-gray-500",
+};
+
+const ACTION_TYPE_LABELS: Record<ActionType, string> = {
+  Decide:  "결정",
+  Ask:     "확인",
+  Align:   "정렬",
+  Unblock: "병목 해소",
+  Watch:   "관찰",
+  Ignore:  "무시",
+};
+
+const ACTION_TYPE_CLS_WS: Record<string, string> = {
+  Decide:  "bg-red-50 text-red-600 border-red-200",
+  Ask:     "bg-orange-50 text-orange-600 border-orange-200",
+  Align:   "bg-blue-50 text-blue-600 border-blue-200",
+  Unblock: "bg-purple-50 text-purple-700 border-purple-200",
+  Watch:   "bg-gray-50 text-gray-500 border-gray-200",
+  Ignore:  "bg-gray-50 text-gray-400 border-gray-100",
 };
 
 const INVALID_OWNERS = new Set([
-  "확인 필요 담당자",
-  "담당자 확인 필요",
-  "담당자 미정",
-  "unknown owner",
-  "미기록 담당자",
-  "미기록",
+  "확인 필요 담당자", "담당자 확인 필요", "담당자 미정",
+  "unknown owner", "미기록 담당자", "미기록",
 ]);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,15 +87,10 @@ function formatSummaryText(text?: string): string {
     return key;
   });
   const broken = protected_.replace(/([.!?。！？])\s+/g, "$1\n");
-  return placeholders.reduce(
-    (acc, v, i) => acc.replace(`__VER_${i}__`, v),
-    broken
-  );
+  return placeholders.reduce((acc, v, i) => acc.replace(`__VER_${i}__`, v), broken);
 }
 
-const STATUS_ORDER: Record<string, number> = {
-  blocked: 0, risk: 1, watch: 2, normal: 3,
-};
+const STATUS_ORDER: Record<string, number> = { blocked: 0, risk: 1, watch: 2, normal: 3 };
 
 function sortProjectsByPriority(items: ProjectProgress[]): ProjectProgress[] {
   return [...items].sort((a, b) => {
@@ -102,6 +116,22 @@ function defaultSelectedIndex(sorted: ProjectProgress[]): number {
   return 0;
 }
 
+/** 드롭다운 옵션 문자열 — "#1 포지 앤 포춘 · 위험 · 96점 · 확인 2" */
+function projectOptionLabel(pp: ProjectProgress): string {
+  const rank = pp.priority_rank !== undefined ? `#${pp.priority_rank} ` : "";
+  const statusKo = pp.status ? ` · ${STATUS_LABELS_KO[pp.status] ?? pp.status}` : "";
+  const score = pp.priority_score !== undefined ? ` · ${pp.priority_score}점` : "";
+  const confirmCount =
+    (Array.isArray(pp.confirmation_queue) ? pp.confirmation_queue.length : 0) +
+    (Array.isArray(pp.needs_confirmation) ? pp.needs_confirmation.length : 0);
+  const riskCount = Array.isArray(pp.risks) ? pp.risks.length : 0;
+  const countParts = [
+    confirmCount > 0 ? `확인 ${confirmCount}` : "",
+    riskCount > 0 ? `리스크 ${riskCount}` : "",
+  ].filter(Boolean).join(" · ");
+  return `${rank}${pp.project}${statusKo}${score}${countParts ? ` · ${countParts}` : ""}`;
+}
+
 // ── Primitive badges ──────────────────────────────────────────────────────────
 
 function WsStatusBadge({ status }: { status?: string }) {
@@ -114,17 +144,24 @@ function WsStatusBadge({ status }: { status?: string }) {
   );
 }
 
-// ── Data Health ───────────────────────────────────────────────────────────────
+function ActionTypeBadge({ type }: { type: ActionType | string }) {
+  const label = ACTION_TYPE_LABELS[type as ActionType] ?? type;
+  const cls = ACTION_TYPE_CLS_WS[type] ?? ACTION_TYPE_CLS_WS.Watch;
+  return (
+    <span className={`inline-flex items-center rounded-full text-xs font-medium px-2 py-0.5 border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Data Health (collapsible) ─────────────────────────────────────────────────
 
 function DataHealthBadge({ health }: { health: ProjectDataHealth }) {
   const score = health.confidence_score;
   const status = health.status;
   const cls =
-    status === "high"
-      ? "text-green-600"
-      : status === "medium"
-      ? "text-yellow-600"
-      : "text-red-600";
+    status === "high" ? "text-green-600" :
+    status === "medium" ? "text-yellow-600" : "text-red-600";
   return (
     <details className="mt-2">
       <summary className="text-xs cursor-pointer text-gray-400 hover:text-gray-600">
@@ -151,14 +188,10 @@ function DataHealthBadge({ health }: { health: ProjectDataHealth }) {
 function EvidenceBadge({ ws }: { ws: Workstream }) {
   const evObj =
     typeof ws.evidence === "object" && ws.evidence !== null
-      ? (ws.evidence as EvidenceSummary)
-      : null;
-  const notionCount =
-    evObj?.notion_count ?? ws.evidence_summary?.notion_count ?? 0;
-  const slackCount =
-    evObj?.slack_count ?? ws.evidence_summary?.slack_count ?? 0;
-  const confidence =
-    evObj?.confidence ?? ws.evidence_summary?.confidence;
+      ? (ws.evidence as EvidenceSummary) : null;
+  const notionCount = evObj?.notion_count ?? ws.evidence_summary?.notion_count ?? 0;
+  const slackCount  = evObj?.slack_count  ?? ws.evidence_summary?.slack_count  ?? 0;
+  const confidence  = evObj?.confidence   ?? ws.evidence_summary?.confidence;
 
   if (notionCount === 0 && slackCount === 0) return null;
 
@@ -176,9 +209,7 @@ function EvidenceBadge({ ws }: { ws: Workstream }) {
       </summary>
       <div className="mt-1 pl-2 text-xs text-gray-500 space-y-1">
         {(evObj?.combined_summary || ws.evidence_summary?.combined_summary) && (
-          <p>
-            {evObj?.combined_summary ?? ws.evidence_summary?.combined_summary}
-          </p>
+          <p>{evObj?.combined_summary ?? ws.evidence_summary?.combined_summary}</p>
         )}
         {typeof ws.evidence === "string" && ws.evidence && (
           <p className="italic">{ws.evidence}</p>
@@ -192,33 +223,25 @@ function EvidenceBadge({ ws }: { ws: Workstream }) {
 
 function TrackBreakdownSection({ tracks }: { tracks: TrackBreakdownItem[] }) {
   const visible = tracks.filter(
-    (t) =>
-      t.summary ||
-      (t.owners?.length ?? 0) > 0 ||
-      (t.status && t.status !== "unknown")
+    (t) => t.summary || (t.owners?.length ?? 0) > 0 || (t.status && t.status !== "unknown")
   );
   if (!visible.length) return null;
   return (
-    <div className="mt-2 space-y-1 border-t border-gray-100 pt-2">
+    <div className="mt-2 space-y-1">
+      <p className="text-xs font-semibold text-gray-400">트랙별</p>
       {visible.map((t, i) => {
         const validOwners = (t.owners ?? []).filter(isValidOwner);
         const meta = [
           t.summary,
           validOwners.length ? `담당: ${validOwners.join(", ")}` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        ].filter(Boolean).join(" · ");
         return (
           <div key={i} className="flex items-start gap-2 text-xs">
             <span className="shrink-0 w-24 text-gray-500 font-medium">
               {TRACK_LABELS[t.track] ?? t.track}
             </span>
-            {t.status && t.status !== "unknown" && (
-              <WsStatusBadge status={t.status} />
-            )}
-            {meta && (
-              <span className="text-gray-600 flex-1 leading-snug">{meta}</span>
-            )}
+            {t.status && t.status !== "unknown" && <WsStatusBadge status={t.status} />}
+            {meta && <span className="text-gray-600 flex-1 leading-snug">{meta}</span>}
           </div>
         );
       })}
@@ -226,67 +249,105 @@ function TrackBreakdownSection({ tracks }: { tracks: TrackBreakdownItem[] }) {
   );
 }
 
-function FunctionBreakdownSection({
-  functions,
-}: {
-  functions: FunctionBreakdownItem[];
-}) {
+function FunctionBreakdownSection({ functions }: { functions: FunctionBreakdownItem[] }) {
   if (!functions.length) return null;
   return (
-    <div className="mt-2 border-t border-gray-100 pt-2">
+    <div className="mt-2">
       <p className="text-xs font-semibold text-gray-400 mb-1">기능별</p>
-      <ul className="space-y-0.5">
-        {functions.map((f, i) => (
-          <li key={i} className="flex items-start gap-1.5 text-xs">
-            <span className="shrink-0 text-gray-300">-</span>
-            <span className="text-gray-700">
-              <span className="font-medium">{f.function}</span>
+      <div className="space-y-1.5">
+        {functions.map((f, i) => {
+          const validOwners = (f.owners ?? []).filter(isValidOwner);
+          return (
+            <div key={i} className="grid grid-cols-[1fr_auto] items-start gap-x-2 text-xs">
+              <div>
+                <span className="font-medium text-gray-800">{f.function}</span>
+                {f.track && (
+                  <span className="text-gray-400 ml-1">
+                    [{TRACK_LABELS[f.track] ?? f.track}]
+                  </span>
+                )}
+                {validOwners.length > 0 && (
+                  <span className="text-indigo-600 ml-1">
+                    · {validOwners.join(", ")}
+                  </span>
+                )}
+                {f.summary && (
+                  <p className="text-gray-500 mt-0.5 leading-snug">{f.summary}</p>
+                )}
+                {f.next_action && (
+                  <p className="text-indigo-700 mt-0.5">→ {f.next_action}</p>
+                )}
+              </div>
               {f.status && <WsStatusBadge status={f.status} />}
-              {f.summary && (
-                <span className="text-gray-500 ml-1">{f.summary}</span>
-              )}
-              {f.next_action && (
-                <span className="text-indigo-600 ml-1">
-                  → {f.next_action}
-                </span>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function OwnerBreakdownSection({
   owners,
+  functionBreakdown,
 }: {
   owners: OwnerBreakdownItem[];
+  functionBreakdown?: FunctionBreakdownItem[];
 }) {
-  const valid = owners.filter((o) => isValidOwner(o.owner));
-  if (!valid.length) return null;
+  let displayOwners = owners.filter((o) => isValidOwner(o.owner));
+
+  // function_breakdown에서 owner 유추 (owner_breakdown이 없을 때)
+  if (!displayOwners.length && functionBreakdown?.length) {
+    const ownerMap = new Map<string, string[]>();
+    for (const f of functionBreakdown) {
+      for (const owner of (f.owners ?? [])) {
+        if (isValidOwner(owner)) {
+          if (!ownerMap.has(owner)) ownerMap.set(owner, []);
+          ownerMap.get(owner)!.push(f.function);
+        }
+      }
+    }
+    displayOwners = Array.from(ownerMap.entries()).map(([owner, funcs]) => ({
+      owner,
+      summary: `기능: ${funcs.join(", ")}`,
+    }));
+  }
+
+  if (!displayOwners.length) return null;
   return (
-    <div className="mt-2 border-t border-gray-100 pt-2">
+    <div className="mt-2">
       <p className="text-xs font-semibold text-gray-400 mb-1">작업자별</p>
-      <ul className="space-y-0.5">
-        {valid.map((o, i) => (
-          <li key={i} className="flex items-start gap-1.5 text-xs text-gray-700">
+      <ul className="space-y-1.5">
+        {displayOwners.map((o, i) => (
+          <li key={i} className="flex items-start gap-1.5 text-xs">
             <span className="shrink-0 text-gray-400">👤</span>
-            <span>
-              <span className="font-medium">{o.owner}</span>
+            <div>
+              <span className="font-medium text-gray-800">{o.owner}</span>
               {o.status && (
                 <span className="text-gray-400 ml-1">({o.status})</span>
               )}
               {o.summary && (
-                <span className="text-gray-500 ml-1">— {o.summary}</span>
+                <p className="text-gray-500 mt-0.5 leading-snug">{o.summary}</p>
               )}
               {(o.tasks?.length ?? 0) > 0 && (
-                <span className="text-gray-400 ml-1">
-                  [{o.tasks!.slice(0, 2).join(", ")}
-                  {o.tasks!.length > 2 ? ` +${o.tasks!.length - 2}` : ""}]
-                </span>
+                <p className="text-gray-400 mt-0.5">
+                  {o.tasks!.slice(0, 2).join(", ")}
+                  {o.tasks!.length > 2 ? ` +${o.tasks!.length - 2}` : ""}
+                </p>
               )}
-            </span>
+              {(o.questions?.length ?? 0) > 0 && (
+                <ul className="mt-0.5 space-y-0.5">
+                  {o.questions!.map((q, qi) => (
+                    <li key={qi} className="text-amber-700">
+                      {q.function ?? q.track ?? q.workstream
+                        ? `[${q.function ?? q.track ?? q.workstream}] `
+                        : ""}
+                      {q.question}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -297,23 +358,19 @@ function OwnerBreakdownSection({
 function InlineSlackSignals({ signals }: { signals: SlackSignal[] }) {
   if (!signals.length) return null;
   return (
-    <div className="mt-2 space-y-1 border-t border-gray-100 pt-2">
+    <div className="mt-2 space-y-1">
+      <p className="text-xs font-semibold text-gray-400">Slack 신호</p>
       {signals.map((s, i) => {
         const ss = s as unknown as Record<string, unknown>;
         const summary = s.summary ?? (ss.text as string) ?? "";
         if (!summary) return null;
-        const relatedWs =
-          s.related_workstream ?? (ss.workstream as string) ?? "";
+        const relatedWs = s.related_workstream ?? (ss.workstream as string) ?? "";
         return (
           <div key={i} className="flex items-start gap-1.5">
-            <SignalBadge
-              type={s.type ?? (ss.signal_type as string) ?? "info"}
-            />
+            <SignalBadge type={s.type ?? (ss.signal_type as string) ?? "info"} />
             <div className="text-xs text-gray-600 leading-snug">
               <span>{summary}</span>
-              {relatedWs && (
-                <span className="text-gray-400 ml-1">↳ {relatedWs}</span>
-              )}
+              {relatedWs && <span className="text-gray-400 ml-1">↳ {relatedWs}</span>}
             </div>
           </div>
         );
@@ -322,15 +379,12 @@ function InlineSlackSignals({ signals }: { signals: SlackSignal[] }) {
   );
 }
 
-// ── Workstream card ───────────────────────────────────────────────────────────
+// ── Workstream card (collapsible details) ──────────────────────────────────────
 
 function WorkstreamCard({ ws }: { ws: Workstream }) {
   const w = ws as unknown as Record<string, unknown>;
   const label = (
-    ws.label ||
-    (w.name as string) ||
-    (w.title as string) ||
-    "미분류"
+    ws.label || (w.name as string) || (w.title as string) || "미분류"
   ).trim();
 
   const combinedSummary =
@@ -341,39 +395,48 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
     (typeof ws.evidence === "string" ? ws.evidence : undefined) ??
     "";
   const nextAction = ws.next_action ?? (w.nextAction as string) ?? "";
-  const items: string[] =
-    ws.items ?? (w.key_tasks as string[]) ?? (w.tasks as string[]) ?? [];
-  const tracks = Array.isArray(ws.track_breakdown) ? ws.track_breakdown : [];
-  const functions = Array.isArray(ws.function_breakdown)
-    ? ws.function_breakdown
-    : [];
-  const ownerBreakdown = Array.isArray(ws.owner_breakdown)
-    ? ws.owner_breakdown
-    : [];
-  const inlineSignals = Array.isArray(ws.slack_signals)
-    ? ws.slack_signals
-    : [];
+  const items: string[] = ws.items ?? (w.key_tasks as string[]) ?? (w.tasks as string[]) ?? [];
+
+  const tracks        = Array.isArray(ws.track_breakdown)    ? ws.track_breakdown    : [];
+  const functions     = Array.isArray(ws.function_breakdown) ? ws.function_breakdown : [];
+  const ownerBreakdown = Array.isArray(ws.owner_breakdown)   ? ws.owner_breakdown    : [];
+  const inlineSignals = Array.isArray(ws.slack_signals)      ? ws.slack_signals      : [];
+  const wsRisks       = Array.isArray(ws.risks)              ? ws.risks              : [];
+  const actionType    = ws.action_type as ActionType | undefined;
+
+  const hasDetails =
+    functions.length > 0 || ownerBreakdown.length > 0 ||
+    tracks.length > 0 || inlineSignals.length > 0 || wsRisks.length > 0;
+
+  const detailSections = [
+    functions.length > 0    ? "기능별" : "",
+    ownerBreakdown.length > 0 || functions.some((f) => (f.owners?.length ?? 0) > 0)
+      ? "작업자별" : "",
+    tracks.length > 0       ? "트랙별" : "",
+    wsRisks.length > 0      ? "리스크" : "",
+  ].filter(Boolean).join(" · ");
 
   return (
     <div className="border-l-2 border-gray-200 pl-3 py-1">
+      {/* Header */}
       <div className="flex items-center gap-2 flex-wrap mb-1">
         <span className="text-sm font-semibold text-gray-800">{label}</span>
         <WsStatusBadge status={ws.status} />
+        {actionType && <ActionTypeBadge type={actionType} />}
       </div>
 
+      {/* Summary */}
       {combinedSummary && (
         <div className="text-sm text-gray-700 whitespace-pre-line leading-snug">
           {formatSummaryText(combinedSummary)}
         </div>
       )}
 
+      {/* Items fallback (summary 없을 때) */}
       {items.length > 0 && !combinedSummary && (
         <ul className="mt-1 space-y-0.5">
           {items.map((item, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-1.5 text-sm text-gray-700"
-            >
+            <li key={i} className="flex items-start gap-1.5 text-sm text-gray-700">
               <span className="shrink-0 text-gray-400 mt-0.5">-</span>
               <span>{item}</span>
             </li>
@@ -381,17 +444,58 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
         </ul>
       )}
 
+      {/* Evidence badge (collapsible) */}
       <EvidenceBadge ws={ws} />
-      <TrackBreakdownSection tracks={tracks} />
-      <FunctionBreakdownSection functions={functions} />
-      <OwnerBreakdownSection owners={ownerBreakdown} />
-      <InlineSlackSignals signals={inlineSignals} />
 
+      {/* Next action */}
       {nextAction && (
         <p className="mt-1.5 text-xs text-indigo-700 font-medium flex gap-1">
           <span className="shrink-0">→</span>
           <span>{nextAction}</span>
         </p>
+      )}
+
+      {/* Detailed breakdown — 접힘 */}
+      {hasDetails && (
+        <details className="mt-2">
+          <summary className="text-xs cursor-pointer select-none text-gray-400 hover:text-gray-600 list-none inline-flex items-center gap-1">
+            <span>▸</span>
+            <span>상세 보기</span>
+            {detailSections && (
+              <span className="text-gray-300">({detailSections})</span>
+            )}
+          </summary>
+          <div className="mt-2 pl-1 space-y-3 border-t border-gray-100 pt-2">
+            {functions.length > 0 && (
+              <FunctionBreakdownSection functions={functions} />
+            )}
+            {(ownerBreakdown.length > 0 || functions.some((f) => (f.owners?.length ?? 0) > 0)) && (
+              <OwnerBreakdownSection
+                owners={ownerBreakdown}
+                functionBreakdown={functions}
+              />
+            )}
+            {tracks.length > 0 && (
+              <TrackBreakdownSection tracks={tracks} />
+            )}
+            {inlineSignals.length > 0 && (
+              <InlineSlackSignals signals={inlineSignals} />
+            )}
+            {wsRisks.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-red-500 mb-1">리스크</p>
+                <ul className="space-y-0.5">
+                  {wsRisks.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1 text-xs text-red-700">
+                      <span className="shrink-0">⚠</span>
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -401,27 +505,20 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
 
 function CeoActionsSection({ pp }: { pp: ProjectProgress }) {
   const ceoActions = pp.ceo_actions;
-  const confirmQueue = Array.isArray(pp.confirmation_queue)
-    ? pp.confirmation_queue
-    : [];
+  const confirmQueue = Array.isArray(pp.confirmation_queue) ? pp.confirmation_queue : [];
 
   const todayItems = Array.isArray(ceoActions?.today)
     ? ceoActions!.today
     : confirmQueue.filter((c) => c.timing === "today").map((c) => c.item);
   const weekItems = Array.isArray(ceoActions?.this_week)
     ? ceoActions!.this_week
-    : confirmQueue
-        .filter((c) => c.timing === "this_week")
-        .map((c) => c.item);
+    : confirmQueue.filter((c) => c.timing === "this_week").map((c) => c.item);
   const watchItems = Array.isArray(ceoActions?.watch)
     ? ceoActions!.watch
     : confirmQueue.filter((c) => c.timing === "watch").map((c) => c.item);
 
-  const hasQueueData =
-    todayItems.length > 0 || weekItems.length > 0 || watchItems.length > 0;
-  const legacyItems: ConfirmationNeeded[] = !hasQueueData
-    ? (pp.needs_confirmation ?? [])
-    : [];
+  const hasQueueData = todayItems.length > 0 || weekItems.length > 0 || watchItems.length > 0;
+  const legacyItems: ConfirmationNeeded[] = !hasQueueData ? (pp.needs_confirmation ?? []) : [];
   const hasAny = hasQueueData || legacyItems.length > 0;
   if (!hasAny) return null;
 
@@ -430,51 +527,42 @@ function CeoActionsSection({ pp }: { pp: ProjectProgress }) {
       <p className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-2">
         대표 액션
       </p>
-
       {todayItems.length > 0 && (
         <div className="mb-2">
           <p className="text-xs font-semibold text-red-600 mb-1">오늘 확인할 것</p>
           <ul className="space-y-1">
             {todayItems.map((item, i) => (
               <li key={i} className="flex gap-1 text-xs text-gray-800">
-                <span className="text-red-400 shrink-0">•</span>
-                <span>{item}</span>
+                <span className="text-red-400 shrink-0">•</span><span>{item}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
-
       {weekItems.length > 0 && (
         <div className="mb-2">
-          <p className="text-xs font-semibold text-orange-600 mb-1">
-            이번 주 결정할 것
-          </p>
+          <p className="text-xs font-semibold text-orange-600 mb-1">이번 주 결정할 것</p>
           <ul className="space-y-1">
             {weekItems.map((item, i) => (
               <li key={i} className="flex gap-1 text-xs text-gray-800">
-                <span className="text-orange-400 shrink-0">•</span>
-                <span>{item}</span>
+                <span className="text-orange-400 shrink-0">•</span><span>{item}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
-
       {watchItems.length > 0 && (
         <div className="mb-1">
           <p className="text-xs font-semibold text-gray-500 mb-1">관찰할 것</p>
           <ul className="space-y-1">
             {watchItems.map((item, i) => (
               <li key={i} className="flex gap-1 text-xs text-gray-600">
-                <span className="text-gray-300 shrink-0">•</span>
-                <span>{item}</span>
+                <span className="text-gray-300 shrink-0">•</span><span>{item}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
-
       {legacyItems.length > 0 && (
         <ul className="space-y-1.5">
           {legacyItems.map((c, i) => {
@@ -491,13 +579,9 @@ function CeoActionsSection({ pp }: { pp: ProjectProgress }) {
                     {validOwner}
                   </span>
                 )}
-                {c.reason && (
-                  <span className="ml-1 text-orange-600"> — {c.reason}</span>
-                )}
+                {c.reason && <span className="ml-1 text-orange-600"> — {c.reason}</span>}
                 {c.requested_action && (
-                  <p className="mt-0.5 pl-1 text-indigo-700 font-medium">
-                    → {c.requested_action}
-                  </p>
+                  <p className="mt-0.5 pl-1 text-indigo-700 font-medium">→ {c.requested_action}</p>
                 )}
               </li>
             );
@@ -522,25 +606,19 @@ function DataConflictsSection({ conflicts }: { conflicts: DataConflict[] }) {
           <div
             key={i}
             className={`rounded-lg px-3 py-2 border text-xs ${
-              c.severity === "high"
-                ? "bg-red-50 border-red-200"
-                : c.severity === "medium"
-                ? "bg-orange-50 border-orange-200"
-                : "bg-yellow-50 border-yellow-200"
+              c.severity === "high" ? "bg-red-50 border-red-200" :
+              c.severity === "medium" ? "bg-orange-50 border-orange-200" :
+              "bg-yellow-50 border-yellow-200"
             }`}
           >
             {c.interpretation && (
-              <p className="font-semibold text-gray-700 mb-0.5">
-                {c.interpretation}
-              </p>
+              <p className="font-semibold text-gray-700 mb-0.5">{c.interpretation}</p>
             )}
             {(c.summary ?? c.description) && (
               <p className="text-gray-600">{c.summary ?? c.description}</p>
             )}
             {c.recommended_action && (
-              <p className="mt-1 text-indigo-600 font-medium">
-                → {c.recommended_action}
-              </p>
+              <p className="mt-1 text-indigo-600 font-medium">→ {c.recommended_action}</p>
             )}
           </div>
         ))}
@@ -565,17 +643,13 @@ function StaleTasksSection({ tasks }: { tasks: StaleTask[] }) {
             <span>
               <span className="font-medium">{t.task_name}</span>
               {t.days_since_update !== undefined && (
-                <span className="text-gray-400">
-                  {" "}· 최근 수정 {t.days_since_update}일 전
-                </span>
+                <span className="text-gray-400"> · 최근 수정 {t.days_since_update}일 전</span>
               )}
               {t.status && (
                 <span className="text-gray-400">, {t.status} 상태 유지</span>
               )}
               {t.recommended_action && (
-                <span className="text-indigo-600 ml-1">
-                  → {t.recommended_action}
-                </span>
+                <span className="text-indigo-600 ml-1">→ {t.recommended_action}</span>
               )}
             </span>
           </li>
@@ -587,72 +661,47 @@ function StaleTasksSection({ tasks }: { tasks: StaleTask[] }) {
 
 // ── Project detail panel ──────────────────────────────────────────────────────
 
-function ProjectDetail({
-  pp,
-  isFallback,
-}: {
-  pp: ProjectProgress;
-  isFallback: boolean;
-}) {
-  const displaySummary =
-    pp.display_summary ??
-    pp.current_summary ??
-    pp.summary ??
-    "";
-  const workstreams = Array.isArray(pp.workstreams) ? pp.workstreams : [];
-  const risks = Array.isArray(pp.risks) ? pp.risks : [];
-  const nextActions = Array.isArray(pp.next_actions) ? pp.next_actions : [];
-  const dataConflicts = Array.isArray(pp.data_conflicts)
-    ? pp.data_conflicts
-    : [];
-  const staleTasks = Array.isArray(pp.stale_tasks) ? pp.stale_tasks : [];
+function ProjectDetail({ pp, isFallback }: { pp: ProjectProgress; isFallback: boolean }) {
+  const displaySummary = pp.display_summary ?? pp.current_summary ?? pp.summary ?? "";
+  const workstreams  = Array.isArray(pp.workstreams)    ? pp.workstreams    : [];
+  const risks        = Array.isArray(pp.risks)          ? pp.risks          : [];
+  const nextActions  = Array.isArray(pp.next_actions)   ? pp.next_actions   : [];
+  const dataConflicts = Array.isArray(pp.data_conflicts) ? pp.data_conflicts : [];
+  const staleTasks   = Array.isArray(pp.stale_tasks)    ? pp.stale_tasks    : [];
 
   return (
-    <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm flex-1 min-w-0">
+    <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm">
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-1">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {pp.priority_rank !== undefined && (
-              <span className="text-xs font-bold text-gray-400">
-                #{pp.priority_rank}
-              </span>
-            )}
-            <h3 className="font-bold text-gray-900 text-base">{pp.project}</h3>
-            {pp.status && <StatusBadge status={pp.status} size="xs" />}
-            {isFallback && (
-              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                자동 생성
-              </span>
-            )}
-            {pp.priority_score !== undefined && (
-              <span className="text-xs text-gray-400">
-                {pp.priority_score}점
-              </span>
-            )}
-            {pp.confidence_score !== undefined && (
-              <span className="text-xs text-gray-400">
-                신뢰도 {pp.confidence_score}
-              </span>
-            )}
-          </div>
-          {pp.priority_reason && (
-            <p className="text-xs text-gray-500 mt-0.5 leading-snug">
-              {pp.priority_reason}
-            </p>
-          )}
-          {displaySummary && (
-            <div className="text-sm text-gray-600 mt-1 leading-snug whitespace-pre-line">
-              {formatSummaryText(displaySummary)}
-            </div>
-          )}
-        </div>
+      <div className="flex items-start gap-2 mb-1 flex-wrap">
+        {pp.priority_rank !== undefined && (
+          <span className="text-xs font-bold text-gray-400 mt-1">#{pp.priority_rank}</span>
+        )}
+        <h3 className="font-bold text-gray-900 text-base leading-snug">{pp.project}</h3>
+        {pp.status && <StatusBadge status={pp.status} size="xs" />}
+        {isFallback && (
+          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+            자동 생성
+          </span>
+        )}
+        {pp.priority_score !== undefined && (
+          <span className="text-xs text-gray-400 mt-1">{pp.priority_score}점</span>
+        )}
+        {pp.confidence_score !== undefined && (
+          <span className="text-xs text-gray-400 mt-1">신뢰도 {pp.confidence_score}</span>
+        )}
       </div>
 
-      {/* Data Health */}
-      {pp.project_data_health && (
-        <DataHealthBadge health={pp.project_data_health} />
+      {pp.priority_reason && (
+        <p className="text-xs text-gray-500 mb-1 leading-snug">{pp.priority_reason}</p>
       )}
+      {displaySummary && (
+        <div className="text-sm text-gray-600 mb-2 leading-snug whitespace-pre-line">
+          {formatSummaryText(displaySummary)}
+        </div>
+      )}
+
+      {/* Data Health */}
+      {pp.project_data_health && <DataHealthBadge health={pp.project_data_health} />}
 
       {/* CEO Actions */}
       <CeoActionsSection pp={pp} />
@@ -661,21 +710,17 @@ function ProjectDetail({
       {workstreams.length > 0 && (
         <div className="mt-4 space-y-3">
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
-            Workstream
+            Workstream ({workstreams.length})
           </p>
-          {workstreams.map((ws, i) => (
-            <WorkstreamCard key={i} ws={ws} />
-          ))}
+          {workstreams.map((ws, i) => <WorkstreamCard key={i} ws={ws} />)}
         </div>
       )}
 
       {/* Schedule notes */}
       {pp.schedule_notes && (
         <div className="mt-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            일정 메모
-          </p>
-          <p className="mt-0.5 text-sm text-gray-700">{pp.schedule_notes}</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">일정 메모</p>
+          <p className="mt-0.5 text-sm text-gray-700 whitespace-pre-line">{pp.schedule_notes}</p>
         </div>
       )}
 
@@ -685,20 +730,14 @@ function ProjectDetail({
       {/* Stale tasks */}
       <StaleTasksSection tasks={staleTasks} />
 
-      {/* Risks */}
+      {/* Project-level risks */}
       {risks.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-bold text-red-500 uppercase tracking-wide mb-1">
-            리스크
-          </p>
+          <p className="text-xs font-bold text-red-500 uppercase tracking-wide mb-1">리스크</p>
           <ul className="space-y-0.5">
             {risks.map((r, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1.5 text-sm text-red-700"
-              >
-                <span className="shrink-0">⚠</span>
-                <span>{r}</span>
+              <li key={i} className="flex items-start gap-1.5 text-sm text-red-700">
+                <span className="shrink-0">⚠</span><span>{r}</span>
               </li>
             ))}
           </ul>
@@ -708,17 +747,11 @@ function ProjectDetail({
       {/* Next actions */}
       {nextActions.length > 0 && (
         <div className="mt-3 border-t border-gray-100 pt-3">
-          <p className="text-xs font-bold text-indigo-500 uppercase tracking-wide mb-1">
-            다음 액션
-          </p>
+          <p className="text-xs font-bold text-indigo-500 uppercase tracking-wide mb-1">다음 액션</p>
           <ul className="space-y-0.5">
             {nextActions.map((a, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1.5 text-sm text-indigo-700"
-              >
-                <span className="shrink-0">→</span>
-                <span>{a}</span>
+              <li key={i} className="flex items-start gap-1.5 text-sm text-indigo-700">
+                <span className="shrink-0">→</span><span>{a}</span>
               </li>
             ))}
           </ul>
@@ -737,9 +770,7 @@ interface Props {
 
 export function ProjectProgressView({ items, isFallback = false }: Props) {
   const sorted = sortProjectsByPriority(items);
-  const [selectedIndex, setSelectedIndex] = useState(() =>
-    defaultSelectedIndex(sorted)
-  );
+  const [selectedIndex, setSelectedIndex] = useState(() => defaultSelectedIndex(sorted));
 
   if (!items.length) {
     return (
@@ -757,107 +788,33 @@ export function ProjectProgressView({ items, isFallback = false }: Props) {
   }
 
   const safeIndex = Math.min(selectedIndex, sorted.length - 1);
-  const selected = sorted[safeIndex];
+  const selected  = sorted[safeIndex];
 
   return (
     <Section title={`프로젝트 진행 판단 (${sorted.length})`}>
       {isFallback && (
         <p className="text-xs text-gray-400 mb-3">
-          Agent payload의 project_progress가 없어 rawTasks 기반으로 자동 생성된
-          현황입니다.
+          Agent payload의 project_progress가 없어 rawTasks 기반으로 자동 생성된 현황입니다.
         </p>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-4 items-start">
-        {/* Left: project list */}
-        <div className="w-full lg:w-64 shrink-0">
-          <div className="space-y-1">
-            {sorted.map((pp, i) => {
-              const priorityScore = pp.priority_score;
-              const priorityRank = pp.priority_rank;
-              const priorityReason = pp.priority_reason;
-              const confirmCount =
-                (Array.isArray(pp.confirmation_queue)
-                  ? pp.confirmation_queue.length
-                  : 0) +
-                (Array.isArray(pp.needs_confirmation)
-                  ? pp.needs_confirmation.length
-                  : 0);
-              const riskCount = Array.isArray(pp.risks) ? pp.risks.length : 0;
-              const conflictCount = Array.isArray(pp.data_conflicts)
-                ? pp.data_conflicts.length
-                : 0;
-              const isSelected = i === safeIndex;
-
-              return (
-                <button
-                  key={pp.project ?? i}
-                  onClick={() => setSelectedIndex(i)}
-                  className={`w-full text-left rounded-lg px-3 py-2.5 transition-colors ${
-                    isSelected
-                      ? "bg-indigo-50 border border-indigo-200"
-                      : "bg-white border border-gray-200 hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {priorityRank !== undefined && (
-                      <span className="text-xs font-bold text-gray-400">
-                        #{priorityRank}
-                      </span>
-                    )}
-                    <span
-                      className={`text-sm font-semibold ${
-                        isSelected ? "text-indigo-900" : "text-gray-800"
-                      }`}
-                    >
-                      {pp.project}
-                    </span>
-                    {pp.status && (
-                      <StatusBadge status={pp.status} size="xs" />
-                    )}
-                  </div>
-                  {priorityScore !== undefined && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {priorityScore}점
-                    </p>
-                  )}
-                  {priorityReason && (
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 leading-snug">
-                      {priorityReason}
-                    </p>
-                  )}
-                  {(confirmCount > 0 ||
-                    riskCount > 0 ||
-                    conflictCount > 0) && (
-                    <div className="flex gap-2 mt-1 text-xs text-gray-400">
-                      {confirmCount > 0 && (
-                        <span className="text-orange-600 font-medium">
-                          확인 {confirmCount}
-                        </span>
-                      )}
-                      {riskCount > 0 && (
-                        <span className="text-red-600 font-medium">
-                          리스크 {riskCount}
-                        </span>
-                      )}
-                      {conflictCount > 0 && (
-                        <span className="text-orange-400">
-                          불일치 {conflictCount}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right: detail */}
-        {selected && (
-          <ProjectDetail pp={selected} isFallback={isFallback} />
-        )}
+      {/* 프로젝트 드롭다운 */}
+      <div className="mb-4">
+        <select
+          value={safeIndex}
+          onChange={(e) => setSelectedIndex(Number(e.target.value))}
+          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
+        >
+          {sorted.map((pp, i) => (
+            <option key={pp.project ?? i} value={i}>
+              {projectOptionLabel(pp)}
+            </option>
+          ))}
+        </select>
       </div>
+
+      {/* 선택 프로젝트 상세 */}
+      {selected && <ProjectDetail pp={selected} isFallback={isFallback} />}
     </Section>
   );
 }

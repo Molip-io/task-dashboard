@@ -199,6 +199,8 @@ export interface FunctionBreakdownItem {
   status?: string;
   summary?: string;
   next_action?: string;
+  owners?: string[];
+  track?: string;
 }
 
 export interface OwnerBreakdownItem {
