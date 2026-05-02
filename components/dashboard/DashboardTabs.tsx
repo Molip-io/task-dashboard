@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { TodayTab }            from "./TodayTab";
 import { ProjectProgressView } from "./ProjectProgressView";
-import { OwnerAlertSummary, TeamOwnerSummary } from "./TeamOwnerSummary";
+import { OwnersTab }           from "./OwnersTab";
 import { TrendSummary }        from "./TrendSummary";
 import { AllTasksTable }       from "./AllTasksTable";
 import { SlackSignalsList }    from "./SlackSignalsList";
@@ -110,7 +110,7 @@ export function DashboardTabs(props: DashboardTabsProps) {
           />
         )}
         {activeTab === "projects" && <ProjectsTab {...props} />}
-        {activeTab === "owners"   && <OwnersTab   {...props} />}
+        {activeTab === "owners"   && <OwnersTabPanel {...props} />}
         {activeTab === "changes"  && <ChangesTab  {...props} />}
         {activeTab === "raw"      && <RawTab      {...props} />}
       </div>
@@ -128,12 +128,13 @@ function ProjectsTab({ projectProgress, isFallback }: DashboardTabsProps) {
   );
 }
 
-function OwnersTab({ alertOwners, teams, taskOwners }: DashboardTabsProps) {
+function OwnersTabPanel({ taskOwners, confirmationQueue, rawTasks }: DashboardTabsProps) {
   return (
-    <div className="space-y-4">
-      <OwnerAlertSummary owners={alertOwners} />
-      <TeamOwnerSummary teams={teams} owners={taskOwners} />
-    </div>
+    <OwnersTab
+      taskOwners={taskOwners}
+      confirmationQueue={confirmationQueue}
+      rawTasks={rawTasks}
+    />
   );
 }
 
