@@ -1,5 +1,5 @@
 import { getLatestRunFromNotion } from "@/lib/notion-summary";
-import type { NotionPayloadDebug } from "@/lib/notion-summary";
+import type { NotionPayloadDebug, InvalidPayloadInfo } from "@/lib/notion-summary";
 import { getLatestRun } from "@/lib/storage";
 import {
   getTasksFromNotion,
@@ -81,6 +81,7 @@ async function fetchJudgment(): Promise<{
   generatedBy?: string;
   fetchError?: string;
   payloadDebug?: NotionPayloadDebug;
+  invalidPayloads?: InvalidPayloadInfo[];
 }> {
   // 1. Notion 업무현황 요약 우선
   try {
@@ -101,6 +102,7 @@ async function fetchJudgment(): Promise<{
         status: run.status,
         generatedBy,
         payloadDebug: notionResult.payloadDebug,
+        invalidPayloads: notionResult.invalid_payloads,
       };
     }
     if (notionResult && "error" in notionResult) {
@@ -109,6 +111,7 @@ async function fetchJudgment(): Promise<{
         date: "-", runId: "-", status: "failed",
         fetchError: notionResult.error,
         payloadDebug: notionResult.payloadDebug,
+        invalidPayloads: notionResult.invalid_payloads,
       };
     }
   } catch {
@@ -156,7 +159,7 @@ export default async function HomePage() {
 
   const {
     data, source, createdAt, date, runId, status,
-    generatedBy, fetchError, payloadDebug,
+    generatedBy, fetchError, payloadDebug, invalidPayloads,
   } = judgment;
 
   const rawTaskDbConfigured = !!process.env.NOTION_TASK_DATABASE_ID;
@@ -268,6 +271,25 @@ export default async function HomePage() {
           metrics={rawKPI}
           confirmCount={confirmCount > 0 ? confirmCount : undefined}
         />
+
+        {/* invalid payload fallback warning */}
+        {invalidPayloads && invalidPayloads.length > 0 && (
+          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm">
+            <p className="font-semibold text-amber-800 mb-1">
+              최신 payload가 파싱에 실패하여 이전 valid payload를 표시합니다.
+            </p>
+            <p className="text-xs text-amber-700 mb-2">
+              조치: 최신 📊 업무현황 요약 page의 payload를 다시 생성해야 합니다.
+            </p>
+            <div className="space-y-1">
+              {invalidPayloads.map((p, i) => (
+                <p key={i} className="text-xs font-mono text-amber-600 break-all">
+                  {p.run_id ? `run: ${p.run_id}` : `page: ${p.page_id}`} — {p.error.slice(0, 120)}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── rawTasks만 있을 때 (v2/v1 없음) ─────────────────────────── */}
         {rawTasks.length > 0 && !v2 && !v1 && (

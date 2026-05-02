@@ -11,6 +11,10 @@
  *   상태       → Select: success | partial | failed
  *   payload    → Rich text ← JSON string
  *   생성시각   → Created time (built-in)
+ *
+ * Latest Valid Payload Fallback:
+ *   최신 후보 10개를 조회해 JSON.parse 가능한 첫 번째를 사용한다.
+ *   깨진 payload는 invalid_payloads 배열에 기록한다.
  */
 
 import type { RunStatus } from "./types";
@@ -55,6 +59,13 @@ export interface NotionPayloadDebug {
   nested_path: string[];
 }
 
+/** 파싱에 실패한 payload 정보 — warning 표시용 */
+export interface InvalidPayloadInfo {
+  page_id: string;
+  run_id?: string | null;
+  error: string;
+}
+
 export interface LatestRunFromNotion extends JsonRecord {
   id: string;
   created_at: string;
@@ -62,6 +73,22 @@ export interface LatestRunFromNotion extends JsonRecord {
   run_id: string;
   status: RunStatus;
 }
+
+// ── 반환 타입 ─────────────────────────────────────────────────────────────────
+
+type SuccessResult = {
+  run: LatestRunFromNotion;
+  payloadDebug: NotionPayloadDebug;
+  invalid_payloads?: InvalidPayloadInfo[];
+};
+
+type ErrorResult = {
+  error: string;
+  payloadDebug?: NotionPayloadDebug;
+  invalid_payloads?: InvalidPayloadInfo[];
+};
+
+// ── 내부 헬퍼 ─────────────────────────────────────────────────────────────────
 
 function richTextToString(items: RichTextItem[]): string {
   return items.map((b) => b.plain_text ?? "").join("");
@@ -143,60 +170,14 @@ function unwrapPayload(input: unknown): {
   return { value: current, payloadNested, nestedPath };
 }
 
-/**
- * Notion DB에서 가장 최신 페이지 1개를 읽어 StoredRun으로 반환.
- *
- * 반환값:
- *   { run, payloadDebug } — 성공
- *   { error: string }   — payload 파싱 실패 (명확한 오류)
- *   null                — env 미설정 / Notion 조회 실패 → Supabase fallback
- */
-export async function getLatestRunFromNotion(): Promise<
-  { run: LatestRunFromNotion; payloadDebug: NotionPayloadDebug }
-  | { error: string; payloadDebug?: NotionPayloadDebug }
-  | null
-> {
-  const token = process.env.NOTION_TOKEN;
-  const dbId = process.env.NOTION_WORK_STATUS_SUMMARY_DATABASE_ID;
-  if (!token || !dbId) return null;
+// ── 단일 페이지 처리 ──────────────────────────────────────────────────────────
 
-  // Notion REST API로 DB 쿼리
-  let res: Response;
-  try {
-    res = await fetch(`${NOTION_API}/databases/${dbId}/query`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Notion-Version": NOTION_VERSION,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        page_size: 1,
-        sorts: [
-          { property: "기준일", direction: "descending" },
-          { timestamp: "created_time", direction: "descending" },
-        ],
-      }),
-      // Next.js: no-store로 항상 최신 데이터 fetch
-      cache: "no-store",
-    });
-  } catch (err) {
-    console.error("[notion-summary] fetch failed:", err);
-    return null; // 네트워크 오류 → Supabase fallback
-  }
+type PageProcessResult =
+  | { ok: true; run: LatestRunFromNotion; payloadDebug: NotionPayloadDebug; runIdHint: string }
+  | { ok: false; error: string; runIdHint?: string };
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(`[notion-summary] Notion API ${res.status}:`, body.slice(0, 200));
-    return null; // API 오류 → Supabase fallback
-  }
-
-  const json = (await res.json()) as { results: NotionPage[] };
-  const page = json.results[0];
-  if (!page) return null; // 데이터 없음 → Supabase fallback
-
+function processNotionPage(page: NotionPage): PageProcessResult {
   const props = page.properties;
-  const pagePropertyKeys = Object.keys(props);
 
   // prop 타입 assertion 헬퍼
   type AsProp<T> = Extract<NotionPage["properties"][string], T>;
@@ -219,19 +200,16 @@ export async function getLatestRunFromNotion(): Promise<
     payloadStr = richTextToString(payloadProp.title);
   }
 
-  const debugBase: Omit<
-    NotionPayloadDebug,
-    | "parsed_top_level_keys"
-    | "normalized_top_level_keys"
-    | "overview_exists"
-    | "results_exists"
-    | "projects_exists"
-    | "tasks_exists"
-    | "payload_nested"
-    | "nested_path"
-  > = {
-    run_id_hint: page.id,
-    page_property_keys: pagePropertyKeys,
+  // run_id 힌트 (에러 시 기록용)
+  const runIdPropHint = props["run_id"] as AsProp<{ type: "rich_text" }> | undefined;
+  const runIdHint =
+    runIdPropHint?.type === "rich_text"
+      ? richTextToString(runIdPropHint.rich_text)
+      : page.id;
+
+  const debugBase = {
+    run_id_hint: runIdHint,
+    page_property_keys: Object.keys(props),
     raw_payload_property_type: rawPayloadPropertyType,
     raw_payload_value_type: typeof payloadStr,
     raw_payload_length: payloadStr.length,
@@ -239,37 +217,15 @@ export async function getLatestRunFromNotion(): Promise<
   };
 
   if (!payloadStr.trim()) {
-    return {
-      error: "Notion 최신 페이지의 payload 필드가 비어 있습니다.",
-      payloadDebug: {
-        ...debugBase,
-        parsed_top_level_keys: [],
-        normalized_top_level_keys: [],
-        overview_exists: false,
-        results_exists: false,
-        projects_exists: false,
-        tasks_exists: false,
-        payload_nested: false,
-        nested_path: [],
-      },
-    };
+    return { ok: false, error: "payload is empty", runIdHint };
   }
 
   const firstParsed = safeParseJson(payloadStr);
   if (!firstParsed.ok) {
     return {
-      error: `Notion payload JSON 파싱 실패: ${firstParsed.error}. 원문(앞 200자): ${payloadStr.slice(0, 200)}`,
-      payloadDebug: {
-        ...debugBase,
-        parsed_top_level_keys: [],
-        normalized_top_level_keys: [],
-        overview_exists: false,
-        results_exists: false,
-        projects_exists: false,
-        tasks_exists: false,
-        payload_nested: false,
-        nested_path: [],
-      },
+      ok: false,
+      error: `JSON.parse failed: ${firstParsed.error} — preview: ${payloadStr.slice(0, 120)}`,
+      runIdHint,
     };
   }
 
@@ -277,44 +233,33 @@ export async function getLatestRunFromNotion(): Promise<
   const unwrapped = unwrapPayload(firstParsed.value);
   if (unwrapped.parseError) {
     return {
-      error: `Notion payload nested JSON 파싱 실패: ${unwrapped.parseError}`,
-      payloadDebug: {
-        ...debugBase,
-        parsed_top_level_keys: parsedTopLevelKeys,
-        normalized_top_level_keys: keysOf(unwrapped.value),
-        overview_exists: false,
-        results_exists: false,
-        projects_exists: false,
-        tasks_exists: false,
-        payload_nested: unwrapped.payloadNested,
-        nested_path: unwrapped.nestedPath,
-      },
+      ok: false,
+      error: `nested JSON.parse failed: ${unwrapped.parseError}`,
+      runIdHint,
     };
   }
 
   if (!isRecord(unwrapped.value)) {
     return {
-      error: "Notion payload가 객체 형태가 아닙니다.",
-      payloadDebug: {
-        ...debugBase,
-        parsed_top_level_keys: parsedTopLevelKeys,
-        normalized_top_level_keys: keysOf(unwrapped.value),
-        overview_exists: false,
-        results_exists: false,
-        projects_exists: false,
-        tasks_exists: false,
-        payload_nested: unwrapped.payloadNested,
-        nested_path: unwrapped.nestedPath,
-      },
+      ok: false,
+      error: "payload is not an object after unwrapping",
+      runIdHint,
     };
   }
 
   const payload = unwrapped.value as JsonRecord;
   const resultsValue = payload.results;
-  const hasOverview =
-    "overview" in payload && isRecord(payload.overview);
+  const hasOverview = "overview" in payload && isRecord(payload.overview);
   const hasResults = "results" in payload;
   const hasV1Results = Array.isArray(resultsValue);
+
+  if (!hasOverview && !hasV1Results) {
+    return {
+      ok: false,
+      error: "payload has no overview + no results array (unrecognized format)",
+      runIdHint,
+    };
+  }
 
   const payloadDebug: NotionPayloadDebug = {
     ...debugBase,
@@ -328,13 +273,6 @@ export async function getLatestRunFromNotion(): Promise<
     nested_path: unwrapped.nestedPath,
   };
 
-  if (!hasOverview && !hasV1Results) {
-    return {
-      error: "Notion payload가 올바른 형식이 아닙니다 (overview 없음 + results 배열 아님).",
-      payloadDebug,
-    };
-  }
-
   // 기준일
   const dateProp = props["기준일"] as AsProp<{ type: "date" }> | undefined;
   const payloadDate = typeof payload.date === "string" ? payload.date : undefined;
@@ -344,11 +282,10 @@ export async function getLatestRunFromNotion(): Promise<
       : payloadDate ?? page.created_time.slice(0, 10);
 
   // run_id
-  const runIdProp = props["run_id"] as AsProp<{ type: "rich_text" }> | undefined;
   const payloadRunId = typeof payload.run_id === "string" ? payload.run_id : undefined;
   const runId =
-    runIdProp?.type === "rich_text"
-      ? richTextToString(runIdProp.rich_text)
+    runIdPropHint?.type === "rich_text"
+      ? richTextToString(runIdPropHint.rich_text)
       : payloadRunId ?? page.id;
 
   // 상태
@@ -370,10 +307,90 @@ export async function getLatestRunFromNotion(): Promise<
   };
 
   return {
+    ok: true,
     run,
-    payloadDebug: {
-      ...payloadDebug,
-      run_id_hint: run.run_id,
-    },
+    payloadDebug: { ...payloadDebug, run_id_hint: run.run_id },
+    runIdHint: run.run_id,
+  };
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Notion DB에서 최신 후보 10개를 읽어 JSON.parse 가능한 첫 번째 run을 반환.
+ *
+ * 반환값:
+ *   { run, payloadDebug, invalid_payloads? } — 성공
+ *   { error, payloadDebug?, invalid_payloads? } — 유효 payload 없음
+ *   null                                        — env 미설정 / API 실패 → Supabase fallback
+ */
+export async function getLatestRunFromNotion(): Promise<
+  SuccessResult | ErrorResult | null
+> {
+  const token = process.env.NOTION_TOKEN;
+  const dbId = process.env.NOTION_WORK_STATUS_SUMMARY_DATABASE_ID;
+  if (!token || !dbId) return null;
+
+  // 최신 후보 10개 조회
+  let res: Response;
+  try {
+    res = await fetch(`${NOTION_API}/databases/${dbId}/query`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        page_size: 10,
+        sorts: [
+          { property: "기준일", direction: "descending" },
+          { timestamp: "created_time", direction: "descending" },
+        ],
+      }),
+      cache: "no-store",
+    });
+  } catch (err) {
+    console.error("[notion-summary] fetch failed:", err);
+    return null; // 네트워크 오류 → Supabase fallback
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`[notion-summary] Notion API ${res.status}:`, body.slice(0, 200));
+    return null; // API 오류 → Supabase fallback
+  }
+
+  const json = (await res.json()) as { results: NotionPage[] };
+  if (!json.results.length) return null; // 데이터 없음 → Supabase fallback
+
+  // 각 페이지를 순서대로 시도 — 첫 번째 valid payload 사용
+  const invalidPayloads: InvalidPayloadInfo[] = [];
+
+  for (const page of json.results) {
+    const result = processNotionPage(page);
+
+    if (result.ok) {
+      // valid payload 발견
+      return {
+        run: result.run,
+        payloadDebug: result.payloadDebug,
+        invalid_payloads: invalidPayloads.length > 0 ? invalidPayloads : undefined,
+      };
+    }
+
+    // 이 페이지는 깨진 payload — 기록하고 다음 페이지로
+    console.warn(`[notion-summary] page ${page.id} invalid: ${result.error}`);
+    invalidPayloads.push({
+      page_id: page.id,
+      run_id: result.runIdHint ?? null,
+      error: result.error,
+    });
+  }
+
+  // 모든 후보가 실패
+  return {
+    error: `최근 ${json.results.length}개 업무현황 요약의 payload가 모두 파싱 불가합니다. Agent를 다시 실행해 valid payload를 생성해야 합니다.`,
+    invalid_payloads: invalidPayloads,
   };
 }
