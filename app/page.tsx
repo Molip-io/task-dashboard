@@ -21,6 +21,7 @@ import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
 import { TrendSummary }        from "@/components/dashboard/TrendSummary";
 import { LegacyResultsView }   from "@/components/dashboard/LegacyResultsView";
 import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView";
+import { CeoActionQueue }      from "@/components/dashboard/CeoActionQueue";
 
 export const revalidate = 60;
 
@@ -300,7 +301,19 @@ export default async function HomePage() {
               </div>
             )}
 
-            {/* 4. 프로젝트 진행 현황 */}
+            {/* 3b. CEO Action Queue */}
+            <CeoActionQueue
+              actions={Array.isArray(v2.overview?.ceo_action_queue) ? v2.overview.ceo_action_queue : []}
+              confirmationQueue={
+                Array.isArray(v2.confirmation_queue)
+                  ? v2.confirmation_queue
+                  : Array.isArray((v2.overview as unknown as Record<string, unknown>)?.confirmation_queue)
+                  ? (v2.overview as unknown as Record<string, unknown>).confirmation_queue as import("@/lib/types").ConfirmationQueueItem[]
+                  : []
+              }
+            />
+
+            {/* 4. 프로젝트 진행 판단 */}
             <ProjectProgressView
               items={projectProgress}
               isFallback={!agentHasProjectProgress}

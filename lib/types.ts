@@ -90,6 +90,9 @@ export interface Overview {
   summary?: string;
   metrics: OverviewMetrics;
   top_attention_items: AttentionItemV2[];
+  ceo_action_queue?: CeoAction[];
+  priority_projects?: PriorityProject[];
+  confirmation_queue?: ConfirmationQueueItem[];
 }
 
 export interface ProjectMetrics {
@@ -203,6 +206,7 @@ export interface OwnerBreakdownItem {
   tasks?: string[];
   status?: string;
   summary?: string;
+  questions?: OwnerQuestion[];
 }
 
 export interface DataConflict {
@@ -210,6 +214,10 @@ export interface DataConflict {
   description: string;
   notion_state?: string;
   slack_state?: string;
+  // v2.4 extensions
+  interpretation?: string;
+  summary?: string;
+  recommended_action?: string;
 }
 
 export interface StaleTask {
@@ -217,6 +225,9 @@ export interface StaleTask {
   days_since_update?: number;
   status?: string;
   workstream?: string;
+  // v2.4 extensions
+  slack_mentions?: number;
+  recommended_action?: string;
 }
 
 export interface ConfirmationQueueItem {
@@ -230,6 +241,13 @@ export interface ConfirmationQueueItem {
   urgency?: Urgency | string;
   reason?: string;
   timing?: "today" | "this_week" | "watch";
+  // v2.4 extensions
+  question?: string;
+  type?: ActionType;
+  action_type?: ActionType;
+  summary?: string;
+  title?: string;
+  impact_if_delayed?: string;
 }
 
 export interface CeoActions {
@@ -242,7 +260,7 @@ export interface Workstream {
   label: string;
   status?: string;
   items?: string[];
-  evidence?: string;
+  evidence?: string | EvidenceSummary;
   next_action?: string;
   // v2.3
   display_summary?: string;
@@ -252,6 +270,10 @@ export interface Workstream {
   function_breakdown?: FunctionBreakdownItem[];
   owner_breakdown?: OwnerBreakdownItem[];
   slack_signals?: SlackSignal[];
+  // v2.4 extensions
+  priority_score?: number;
+  action_type?: ActionType;
+  risks?: string[];
 }
 
 export interface ConfirmationNeeded {
@@ -265,6 +287,7 @@ export interface ProjectProgress {
   project: string;
   current_summary?: string;
   display_summary?: string;
+  summary?: string;
   workstreams?: Workstream[];
   next_actions?: string[];
   schedule_notes?: string;
@@ -278,6 +301,12 @@ export interface ProjectProgress {
   data_conflicts?: DataConflict[];
   stale_tasks?: StaleTask[];
   function_breakdown?: FunctionBreakdownItem[];
+  // v2.4
+  priority_score?: number;
+  priority_rank?: number;
+  priority_reason?: string;
+  confidence_score?: number;
+  project_data_health?: ProjectDataHealth;
 }
 
 // ── Trend (run 간 비교) ───────────────────────────────────────────────────────
@@ -324,12 +353,72 @@ export interface WorkStatusPayloadV2 {
   project_progress?: ProjectProgress[];
   warnings?: string[];
   errors?: string[];
+  confirmation_queue?: ConfirmationQueueItem[];
 }
 
 /** 저장된 run — v1/v2 모두 담을 수 있는 wrapper */
 export interface StoredRunV2 extends WorkStatusPayloadV2 {
   id: string;
   created_at: string;
+}
+
+// ── V2.4 types ────────────────────────────────────────────────────────────────
+
+export type ActionType = "Decide" | "Ask" | "Align" | "Unblock" | "Watch" | "Ignore";
+
+export interface CeoAction {
+  type?: ActionType;
+  action_type?: ActionType;
+  project: string;
+  workstream?: string | null;
+  function?: string | null;
+  question?: string;
+  decision_needed?: string | null;
+  owner?: string | null;
+  owner_status?: "assigned" | "unassigned" | "unclear";
+  reason?: string;
+  impact_if_delayed?: string;
+  urgency?: "today" | "this_week" | "later";
+  priority_score?: number;
+  confidence?: "high" | "medium" | "low";
+  source?: "notion" | "slack" | "combined" | "inferred";
+}
+
+export interface ProjectDataHealth {
+  status?: "high" | "medium" | "low";
+  notion_task_coverage?: "none" | "weak" | "sufficient" | "strong";
+  slack_signal_coverage?: "none" | "weak" | "sufficient" | "strong";
+  owner_mapping?: "none" | "partial" | "sufficient" | "strong";
+  schedule_coverage?: "none" | "partial" | "sufficient";
+  stale_task_count?: number;
+  conflict_count?: number;
+  unlinked_slack_signal_count?: number;
+  confidence_score?: number;
+  notes?: string[];
+}
+
+export interface PriorityProject {
+  project: string;
+  priority_rank?: number;
+  priority_score?: number;
+  priority_reason?: string;
+  status?: StatusLevel;
+  confidence_score?: number;
+  confirmation_count?: number;
+  risk_count?: number;
+  data_conflict_count?: number;
+  stale_task_count?: number;
+}
+
+export interface OwnerQuestion {
+  project: string;
+  workstream?: string;
+  function?: string | null;
+  track?: string;
+  question: string;
+  reason?: string;
+  urgency?: "today" | "this_week" | "later";
+  action_type?: ActionType;
 }
 
 // ── Type guards ───────────────────────────────────────────────────────────────
