@@ -13,15 +13,12 @@ import { isV2Payload, isV1Payload } from "@/lib/types";
 import type { WorkStatusPayloadV2, WorkStatusPayload, SlackSignal, ProjectProgress } from "@/lib/types";
 
 import { DashboardHeader }     from "@/components/dashboard/DashboardHeader";
-import { WarningErrorPanel }   from "@/components/dashboard/WarningErrorPanel";
 import { SourceMetaPanel }     from "@/components/dashboard/SourceMetaPanel";
 import { AllTasksTable }       from "@/components/dashboard/AllTasksTable";
 import { TeamOwnerSummary, OwnerAlertSummary } from "@/components/dashboard/TeamOwnerSummary";
-import { SlackSignalsList }    from "@/components/dashboard/SlackSignalsList";
-import { TrendSummary }        from "@/components/dashboard/TrendSummary";
 import { LegacyResultsView }   from "@/components/dashboard/LegacyResultsView";
 import { ProjectProgressView } from "@/components/dashboard/ProjectProgressView";
-import { CeoActionQueue }      from "@/components/dashboard/CeoActionQueue";
+import { DashboardTabs }       from "@/components/dashboard/DashboardTabs";
 
 export const revalidate = 60;
 
@@ -310,61 +307,30 @@ export default async function HomePage() {
           </>
         )}
 
-        {/* ── V2 Dashboard ──────────────────────────────────────────────── */}
+        {/* ── V2 Dashboard — 탭 구조 ────────────────────────────────────── */}
         {v2 && (
-          <>
-            {/* 3. 이번 주 운영 판단 */}
-            {v2.overview.summary && (
-              <div className="mt-4 rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3 flex items-start gap-3">
-                <span className="shrink-0 text-xs font-bold text-indigo-500 uppercase tracking-wide mt-0.5">
-                  이번 주 운영 판단
-                </span>
-                <p className="text-sm text-indigo-900 leading-relaxed">{v2.overview.summary}</p>
-              </div>
-            )}
-
-            {/* 3b. CEO Action Queue */}
-            <CeoActionQueue
-              actions={Array.isArray(v2.overview?.ceo_action_queue) ? v2.overview.ceo_action_queue : []}
-              confirmationQueue={
-                Array.isArray(v2.confirmation_queue)
-                  ? v2.confirmation_queue
-                  : Array.isArray((v2.overview as unknown as Record<string, unknown>)?.confirmation_queue)
-                  ? (v2.overview as unknown as Record<string, unknown>).confirmation_queue as import("@/lib/types").ConfirmationQueueItem[]
-                  : []
-              }
-            />
-
-            {/* 4. 프로젝트 진행 판단 */}
-            <ProjectProgressView
-              items={projectProgress}
-              isFallback={!agentHasProjectProgress}
-            />
-
-            {/* 5. 확인 필요 담당자 — Agent 기준 */}
-            <OwnerAlertSummary owners={alertOwners} />
-
-            {/* 6. 지난 실행 대비 변화 */}
-            <TrendSummary trend={v2.trend} />
-
-            {/* 7. 원본 확인: 전체 작업 */}
-            <AllTasksTable
-              tasks={rawTasks}
-              fetchError={rawTaskFetchError}
-              rawTaskDbConfigured={rawTaskDbConfigured}
-            />
-
-            {/* 8. 상세: 전체 작업 담당자 / 전체 직원 커버리지 / 미연결 Slack / warnings·errors */}
-            <DetailSection>
-              <TeamOwnerSummary teams={effectiveTeams} owners={taskOwners} />
-              {unlinkedSignals.length > 0 && (
-                <SlackSignalsList signals={unlinkedSignals} title="미연결 Slack 신호" />
-              )}
-              <WarningErrorPanel
-                errors={v2.errors ?? (fetchError ? [fetchError] : [])}
-              />
-            </DetailSection>
-          </>
+          <DashboardTabs
+            overviewSummary={v2.overview.summary}
+            ceoActions={Array.isArray(v2.overview?.ceo_action_queue) ? v2.overview.ceo_action_queue : []}
+            confirmationQueue={
+              Array.isArray(v2.confirmation_queue)
+                ? v2.confirmation_queue
+                : Array.isArray((v2.overview as unknown as Record<string, unknown>)?.confirmation_queue)
+                ? (v2.overview as unknown as Record<string, unknown>).confirmation_queue as import("@/lib/types").ConfirmationQueueItem[]
+                : []
+            }
+            projectProgress={projectProgress}
+            isFallback={!agentHasProjectProgress}
+            alertOwners={alertOwners}
+            teams={effectiveTeams}
+            taskOwners={taskOwners}
+            trend={v2.trend}
+            rawTasks={rawTasks}
+            rawTaskFetchError={rawTaskFetchError}
+            rawTaskDbConfigured={rawTaskDbConfigured}
+            unlinkedSignals={unlinkedSignals}
+            errors={v2.errors ?? (fetchError ? [fetchError] : [])}
+          />
         )}
 
         {/* ── V1 Fallback ───────────────────────────────────────────────── */}
