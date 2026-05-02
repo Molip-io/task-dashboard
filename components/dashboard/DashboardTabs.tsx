@@ -4,7 +4,7 @@ import { useState } from "react";
 import { TodayTab }            from "./TodayTab";
 import { ProjectProgressView } from "./ProjectProgressView";
 import { OwnersTab }           from "./OwnersTab";
-import { TrendSummary }        from "./TrendSummary";
+import { ChangesTab }          from "./ChangesTab";
 import { AllTasksTable }       from "./AllTasksTable";
 import { SlackSignalsList }    from "./SlackSignalsList";
 import { WarningErrorPanel }   from "./WarningErrorPanel";
@@ -111,7 +111,7 @@ export function DashboardTabs(props: DashboardTabsProps) {
         )}
         {activeTab === "projects" && <ProjectsTab {...props} />}
         {activeTab === "owners"   && <OwnersTabPanel {...props} />}
-        {activeTab === "changes"  && <ChangesTab  {...props} />}
+        {activeTab === "changes"  && <ChangesTabPanel {...props} />}
         {activeTab === "raw"      && <RawTab      {...props} />}
       </div>
     </div>
@@ -138,13 +138,8 @@ function OwnersTabPanel({ taskOwners, confirmationQueue, rawTasks }: DashboardTa
   );
 }
 
-function ChangesTab({ trend }: DashboardTabsProps) {
-  return (
-    <div>
-      <TrendSummary trend={trend} />
-      {!trend && <EmptyTabMessage message="이전 실행 데이터가 없어 변화를 비교할 수 없습니다." />}
-    </div>
-  );
+function ChangesTabPanel({ trend }: DashboardTabsProps) {
+  return <ChangesTab trend={trend} />;
 }
 
 function RawTab({
@@ -165,17 +160,6 @@ function RawTab({
         <SlackSignalsList signals={unlinkedSignals} title="미연결 Slack 신호" />
       )}
       <WarningErrorPanel errors={errors} />
-    </div>
-  );
-}
-
-// ── 빈 탭 안내 ───────────────────────────────────────────────────────────────
-
-function EmptyTabMessage({ message }: { message: string }) {
-  return (
-    <div className="text-center py-12 text-gray-400">
-      <p className="text-3xl mb-2">📭</p>
-      <p className="text-sm">{message}</p>
     </div>
   );
 }
