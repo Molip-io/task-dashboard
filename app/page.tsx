@@ -391,6 +391,20 @@ export default async function HomePage() {
           </>
         )}
 
+        {/* ── normalize warnings (v2 데이터 자동 보정 결과) ──────────────── */}
+        {payloadDebug?.normalize_warnings && payloadDebug.normalize_warnings.length > 0 && (
+          <div className="mt-3 rounded-lg bg-sky-50 border border-sky-200 px-4 py-3 text-sm">
+            <p className="font-semibold text-sky-800 mb-1">
+              payload 자동 보정 ({payloadDebug.normalize_warnings.length}건)
+            </p>
+            <div className="space-y-0.5">
+              {payloadDebug.normalize_warnings.map((w, i) => (
+                <p key={i} className="text-xs font-mono text-sky-700">{w}</p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Unknown format ────────────────────────────────────────────── */}
         {!v2 && !v1 && data && (
           <div className="mt-8 p-4 space-y-2 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
@@ -410,9 +424,25 @@ export default async function HomePage() {
             )}
             <p className="font-mono text-xs text-yellow-700">overview exists: {String(debugOverviewExists)}</p>
             <p className="font-mono text-xs text-yellow-700">results exists: {String(debugResultsExists)}</p>
+            <p className="font-mono text-xs text-yellow-700">
+              project_progress count: {payloadDebug?.project_progress_count ?? 0}
+            </p>
             <p className="font-mono text-xs text-yellow-700">payload nested: {String(payloadDebug?.payload_nested ?? false)}</p>
             {!!payloadDebug?.nested_path?.length && (
               <p className="font-mono text-xs text-yellow-700">nested path: {payloadDebug.nested_path.join(" > ")}</p>
+            )}
+            {!!payloadDebug?.validate_error && (
+              <p className="font-mono text-xs text-red-700 font-semibold">
+                validate error: {payloadDebug.validate_error}
+              </p>
+            )}
+            {!!payloadDebug?.normalize_warnings?.length && (
+              <div>
+                <p className="font-mono text-xs text-yellow-700 font-semibold">normalize warnings:</p>
+                {payloadDebug.normalize_warnings.map((w, i) => (
+                  <p key={i} className="font-mono text-xs text-yellow-600 ml-2">• {w}</p>
+                ))}
+              </div>
             )}
           </div>
         )}

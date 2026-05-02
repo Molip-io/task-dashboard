@@ -18,6 +18,7 @@
  */
 
 import type { RunStatus } from "./types";
+import { normalizeDashboardPayload, validateDashboardPayload } from "./normalize-dashboard-payload";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -57,6 +58,12 @@ export interface NotionPayloadDebug {
   tasks_exists: boolean;
   payload_nested: boolean;
   nested_path: string[];
+  /** normalize 단계에서 자동 수정된 항목 (빈 배열이면 수정 없음) */
+  normalize_warnings: string[];
+  /** validate 실패 시 에러 메시지 */
+  validate_error?: string;
+  /** project_progress 배열 크기 (0이면 rawTasks fallback 사용됨) */
+  project_progress_count: number;
 }
 
 /** 파싱에 실패한 payload 정보 — warning 표시용 */
@@ -247,12 +254,29 @@ function processNotionPage(page: NotionPage): PageProcessResult {
     };
   }
 
-  const payload = unwrapped.value as JsonRecord;
+  const rawPayload = unwrapped.value as JsonRecord;
+
+  // ── Normalize + Validate ──────────────────────────────────────────────────
+  const { normalized: normalizedPayload, warnings: normalizeWarnings } =
+    normalizeDashboardPayload(rawPayload);
+
+  const validation = validateDashboardPayload(normalizedPayload);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error: `payload validate failed: ${validation.error}`,
+      runIdHint,
+    };
+  }
+  const validateWarnings = validation.warnings ?? [];
+
+  const payload = normalizedPayload;
   const resultsValue = payload.results;
   const hasOverview = "overview" in payload && isRecord(payload.overview);
   const hasResults = "results" in payload;
   const hasV1Results = Array.isArray(resultsValue);
 
+  // (validate 통과했으므로 overview도 results[]도 없는 경우는 이미 걸러짐)
   if (!hasOverview && !hasV1Results) {
     return {
       ok: false,
@@ -260,6 +284,11 @@ function processNotionPage(page: NotionPage): PageProcessResult {
       runIdHint,
     };
   }
+
+  const allNormalizeWarnings = [...normalizeWarnings, ...validateWarnings];
+  const projectProgressCount = Array.isArray(payload.project_progress)
+    ? (payload.project_progress as unknown[]).length
+    : 0;
 
   const payloadDebug: NotionPayloadDebug = {
     ...debugBase,
@@ -271,6 +300,8 @@ function processNotionPage(page: NotionPage): PageProcessResult {
     tasks_exists: "tasks" in payload,
     payload_nested: unwrapped.payloadNested,
     nested_path: unwrapped.nestedPath,
+    normalize_warnings: allNormalizeWarnings,
+    project_progress_count: projectProgressCount,
   };
 
   // 기준일
