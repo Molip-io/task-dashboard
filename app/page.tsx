@@ -319,6 +319,7 @@ export default async function HomePage() {
                 ? (v2.overview as unknown as Record<string, unknown>).confirmation_queue as import("@/lib/types").ConfirmationQueueItem[]
                 : []
             }
+            priorityProjects={Array.isArray(v2.overview?.priority_projects) ? v2.overview.priority_projects : undefined}
             projectProgress={projectProgress}
             isFallback={!agentHasProjectProgress}
             alertOwners={alertOwners}

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { TodayTab }            from "./TodayTab";
 import { ProjectProgressView } from "./ProjectProgressView";
-import { CeoActionQueue }      from "./CeoActionQueue";
 import { OwnerAlertSummary, TeamOwnerSummary } from "./TeamOwnerSummary";
 import { TrendSummary }        from "./TrendSummary";
 import { AllTasksTable }       from "./AllTasksTable";
@@ -17,6 +17,7 @@ import type {
   TeamStatus,
   Trend,
   SlackSignal,
+  PriorityProject,
 } from "@/lib/types";
 import type { DashboardTask } from "@/lib/notion-tasks";
 
@@ -45,6 +46,8 @@ export interface DashboardTabsProps {
   overviewSummary?: string;
   ceoActions: CeoAction[];
   confirmationQueue: ConfirmationQueueItem[];
+  /** overview.priority_projects — 위험 프로젝트 요약에 사용 */
+  priorityProjects?: PriorityProject[];
 
   // 프로젝트 탭
   projectProgress: ProjectProgress[];
@@ -97,7 +100,15 @@ export function DashboardTabs(props: DashboardTabsProps) {
 
       {/* 탭 콘텐츠 */}
       <div className="pt-4">
-        {activeTab === "today"    && <TodayTab    {...props} />}
+        {activeTab === "today" && (
+          <TodayTab
+            overviewSummary={props.overviewSummary}
+            ceoActions={props.ceoActions}
+            confirmationQueue={props.confirmationQueue}
+            priorityProjects={props.priorityProjects}
+            projectProgress={props.projectProgress}
+          />
+        )}
         {activeTab === "projects" && <ProjectsTab {...props} />}
         {activeTab === "owners"   && <OwnersTab   {...props} />}
         {activeTab === "changes"  && <ChangesTab  {...props} />}
@@ -108,34 +119,6 @@ export function DashboardTabs(props: DashboardTabsProps) {
 }
 
 // ── 탭별 서브 컴포넌트 ─────────────────────────────────────────────────────────
-
-function TodayTab({ overviewSummary, ceoActions, confirmationQueue }: DashboardTabsProps) {
-  return (
-    <div className="space-y-4">
-      {/* 이번 주 운영 판단 */}
-      {overviewSummary && (
-        <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3 flex items-start gap-3">
-          <span className="shrink-0 text-xs font-bold text-indigo-500 uppercase tracking-wide mt-0.5">
-            이번 주 운영 판단
-          </span>
-          <p className="text-sm text-indigo-900 leading-relaxed whitespace-pre-line">
-            {overviewSummary}
-          </p>
-        </div>
-      )}
-
-      {/* CEO Action Queue */}
-      <CeoActionQueue
-        actions={ceoActions}
-        confirmationQueue={confirmationQueue}
-      />
-
-      {!overviewSummary && ceoActions.length === 0 && confirmationQueue.length === 0 && (
-        <EmptyTabMessage message="오늘 확인할 운영 판단 항목이 없습니다." />
-      )}
-    </div>
-  );
-}
 
 function ProjectsTab({ projectProgress, isFallback }: DashboardTabsProps) {
   return (

@@ -51,10 +51,13 @@ function isValidOwner(owner?: string | null): boolean {
 interface Props {
   actions: CeoAction[];
   confirmationQueue?: ConfirmationQueueItem[];
+  /** 기본 노출 개수. 미지정 시 전체 표시 */
+  maxVisible?: number;
 }
 
-export function CeoActionQueue({ actions, confirmationQueue = [] }: Props) {
+export function CeoActionQueue({ actions, confirmationQueue = [], maxVisible }: Props) {
   const [showIgnored, setShowIgnored] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   // Normalize and merge with confirmation_queue fallback
   let items: CeoAction[] = [...actions];
@@ -95,13 +98,18 @@ export function CeoActionQueue({ actions, confirmationQueue = [] }: Props) {
     return ta - tb;
   });
 
+  // maxVisible 슬라이스
+  const cutoff = maxVisible && !showAll ? maxVisible : undefined;
+  const displayed = cutoff ? sorted.slice(0, cutoff) : sorted;
+  const hiddenCount = cutoff ? Math.max(0, sorted.length - cutoff) : 0;
+
   return (
     <section className="mt-6">
       <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
         오늘 대표 액션 ({sorted.length})
       </h2>
       <div className="space-y-2">
-        {sorted.map((a, i) => {
+        {displayed.map((a, i) => {
           const atype = (a.type ?? a.action_type ?? "Ask") as ActionType;
           const label = ACTION_TYPE_LABELS[atype] ?? atype;
           const cls = ACTION_TYPE_CLS[atype] ?? ACTION_TYPE_CLS.Watch;
@@ -168,6 +176,23 @@ export function CeoActionQueue({ actions, confirmationQueue = [] }: Props) {
           );
         })}
       </div>
+      {/* 더 보기 버튼 — maxVisible 초과 시 */}
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="mt-2 w-full rounded-lg border border-gray-200 py-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          나머지 {hiddenCount}개 보기 ▾
+        </button>
+      )}
+      {showAll && maxVisible && sorted.length > maxVisible && (
+        <button
+          onClick={() => setShowAll(false)}
+          className="mt-1 text-xs text-gray-400 hover:text-gray-600"
+        >
+          접기 ▴
+        </button>
+      )}
       {ignoredCount > 0 && (
         <button
           onClick={() => setShowIgnored((v) => !v)}
