@@ -49,3 +49,6 @@ molip-dashboard/.next/
 # debug artifacts
 debug-payload-*.txt
 .claude/settings.local.json
+
+# code-review-graph
+.code-review-graph/
