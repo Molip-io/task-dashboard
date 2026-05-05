@@ -1,0 +1,16 @@
+{
+  "run_id": "2026-05-04-1430",
+  "date": "2026-05-04",
+  "status": "success",
+  "stage": "completed",
+  "notion_page_id": "356b4a46-5003-81a5-8fed-d0b315ad5a1b",
+  "notion_url": "https://www.notion.so/356b4a46500381a58fedd0b315ad5a1b",
+  "project_count": 4,
+  "payload_length": 5200,
+  "errors": [],
+  "warnings": [
+    "Lane Guardians: 요약=NO, 활성 프로젝트에서 제외됨",
+    "팀 작업 현황 개별 태스크 상세 조회 미실행 (DB 스키마 및 Slack 신호 기반으로 payload 구성)"
+  ],
+  "saved_at": "2026-05-04T14:30:00.000Z"
+}

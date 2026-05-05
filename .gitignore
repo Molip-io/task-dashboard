@@ -45,3 +45,7 @@ next-env.d.ts
 
 # molip-dashboard build artifacts
 molip-dashboard/.next/
+
+# debug artifacts
+debug-payload-*.txt
+.claude/settings.local.json
