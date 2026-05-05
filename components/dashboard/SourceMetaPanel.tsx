@@ -1,4 +1,4 @@
-import type { SourceMetaV2, RunStatus, OverviewMetrics } from "@/lib/types";
+import type { SourceMetaV2, RunStatus, OverviewMetrics, NotionTasksHealth } from "@/lib/types";
 
 const RETRIEVAL_LABEL: Record<string, string> = {
   full:    "전체 수집",
@@ -13,6 +13,12 @@ const KPI_CHIPS: Array<{ key: keyof OverviewMetrics; label: string; alert?: bool
   { key: "high_priority_tasks", label: "고우선" },
 ];
 
+const RETRIEVAL_MODE_LABEL: Record<string, string> = {
+  structured_query: "구조화 질의",
+  db_fetch: "DB 전체 조회",
+  search_fallback: "검색 fallback",
+};
+
 interface Props {
   sourceMeta?: SourceMetaV2;
   runStatus?: RunStatus | string;
@@ -23,6 +29,7 @@ interface Props {
   slackSignalCount?: number;
   metrics?: OverviewMetrics;
   confirmCount?: number;
+  notionTasksHealth?: NotionTasksHealth;
 }
 
 export function SourceMetaPanel({
@@ -35,8 +42,10 @@ export function SourceMetaPanel({
   slackSignalCount,
   metrics,
   confirmCount,
+  notionTasksHealth,
 }: Props) {
-  const isPartial = runStatus === "partial";
+  const isNotionPartial = notionTasksHealth?.status === "partial";
+  const isPartial = runStatus === "partial" && !isNotionPartial;
   const hasKpi = metrics && KPI_CHIPS.some(({ key }) => metrics[key] !== undefined);
   const showKpiBar = hasKpi || (confirmCount !== undefined && confirmCount > 0);
 
@@ -48,7 +57,44 @@ export function SourceMetaPanel({
 
   return (
     <div className="mt-4 space-y-2">
-      {/* partial 상태 경고 */}
+      {/* Notion 전체 업무 조회 실패 partial 경고 */}
+      {isNotionPartial && (
+        <details className="rounded-lg bg-amber-50 border border-amber-300 overflow-hidden">
+          <summary className="px-4 py-3 cursor-pointer flex items-start gap-2 select-none hover:bg-amber-100">
+            <span className="text-amber-500 text-sm shrink-0 mt-0.5">⚠</span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">
+                Notion 전체 업무 조회 실패 · 핵심 근거 기반 partial 판단
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                담당자별 업무량, stale task, 전체 task 수는 누락될 수 있습니다. 자세히 보려면 펼치세요.
+              </p>
+            </div>
+            <span className="text-amber-500 text-xs font-normal shrink-0 mt-0.5">펼치기 ▾</span>
+          </summary>
+          <div className="px-4 pb-3 pt-1 border-t border-amber-200 space-y-1">
+            <p className="text-xs text-amber-800">
+              Notion <code className="bg-amber-100 rounded px-1">팀 작업 현황</code> 전체 조회가 실패해
+              핵심 근거 기반으로 판단했습니다. 담당자별 업무량, stale task, 전체 task 수는 누락될 수 있습니다.
+            </p>
+            {notionTasksHealth?.failure_reason && (
+              <p className="text-xs text-amber-700">
+                실패 원인: <span className="font-medium">{notionTasksHealth.failure_reason}</span>
+              </p>
+            )}
+            {notionTasksHealth?.retrieval_mode && (
+              <p className="text-xs text-amber-700">
+                사용된 방식:{" "}
+                <span className="font-medium">
+                  {RETRIEVAL_MODE_LABEL[notionTasksHealth.retrieval_mode] ?? notionTasksHealth.retrieval_mode}
+                </span>
+              </p>
+            )}
+          </div>
+        </details>
+      )}
+
+      {/* 일반 partial 상태 경고 (Notion evidence 외 원인) */}
       {isPartial && (
         <div className="rounded-lg bg-yellow-50 border border-yellow-300 px-4 py-3 flex items-start gap-2">
           <span className="text-yellow-500 text-sm shrink-0 mt-0.5">⚠</span>
@@ -134,7 +180,7 @@ export function SourceMetaPanel({
 
         {/* KPI 칩 바 */}
         {showKpiBar && (
-          <div className="mt-2 pt-2 border-t border-gray-200 flex flex-wrap gap-1.5">
+          <div className="mt-2 pt-2 border-t border-gray-200 flex flex-wrap gap-1.5 items-center">
             {KPI_CHIPS.map(({ key, label, alert }) => {
               const val = metrics?.[key];
               if (val === undefined) return null;
@@ -156,6 +202,11 @@ export function SourceMetaPanel({
             {confirmCount !== undefined && confirmCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-xs text-orange-700 font-semibold">
                 확인 {confirmCount}건
+              </span>
+            )}
+            {isNotionPartial && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-700 font-medium">
+                부분 근거
               </span>
             )}
           </div>

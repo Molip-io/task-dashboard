@@ -267,6 +267,7 @@ export default async function HomePage() {
           slackSignalCount={allSignals.length}
           metrics={rawKPI}
           confirmCount={confirmCount > 0 ? confirmCount : undefined}
+          notionTasksHealth={v2?.data_health?.notion_tasks}
         />
 
         {/* payload 파싱 실패 배너 */}

@@ -356,6 +356,7 @@ export interface WorkStatusPayloadV2 {
   warnings?: string[];
   errors?: string[];
   confirmation_queue?: ConfirmationQueueItem[];
+  data_health?: PayloadDataHealth;
 }
 
 /** 저장된 run — v1/v2 모두 담을 수 있는 wrapper */
@@ -397,6 +398,22 @@ export interface ProjectDataHealth {
   unlinked_slack_signal_count?: number;
   confidence_score?: number;
   notes?: string[];
+}
+
+/** 팀 작업 현황 DB 수집 상태 — data_health.notion_tasks */
+export interface NotionTasksHealth {
+  status?: "success" | "partial";
+  retrieval_mode?: "structured_query" | "db_fetch" | "search_fallback";
+  primary_query_failed?: boolean;
+  fallback_used?: boolean;
+  failure_reason?: string | null;
+  count?: number;
+  confidence_impact?: "none" | "low" | "medium" | "high";
+}
+
+/** payload 최상위 data_health 객체 */
+export interface PayloadDataHealth {
+  notion_tasks?: NotionTasksHealth;
 }
 
 export interface PriorityProject {

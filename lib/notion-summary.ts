@@ -193,12 +193,14 @@ function processNotionPage(page: NotionPage): PageProcessResult {
   const payloadProp = props["payload"] as NotionPage["properties"][string] | undefined;
   const rawPayloadPropertyType = payloadProp?.type ?? "missing";
   let payloadStr = "";
+  let richTextChunks: RichTextItem[] = [];
   if (
     payloadProp?.type === "rich_text" &&
     "rich_text" in payloadProp &&
     Array.isArray(payloadProp.rich_text)
   ) {
-    payloadStr = richTextToString(payloadProp.rich_text);
+    richTextChunks = payloadProp.rich_text;
+    payloadStr = richTextToString(richTextChunks);
   } else if (
     payloadProp?.type === "title" &&
     "title" in payloadProp &&
@@ -227,11 +229,34 @@ function processNotionPage(page: NotionPage): PageProcessResult {
     return { ok: false, error: "payload is empty", runIdHint };
   }
 
+  // chunk 구조 요약 — JSON.parse 실패 시 진단용
+  const chunkSummary =
+    richTextChunks.length > 0
+      ? `chunks=${richTextChunks.length}[${richTextChunks.map((c) => c.plain_text?.length ?? 0).join(",")}]`
+      : "chunks=0";
+
+  // 비표준 chunk 크기 감지 (saveRunToNotion은 2000자 단위로 분할)
+  const EXPECTED_CHUNK_SIZE = 2000;
+  const hasOversizedChunk = richTextChunks.some(
+    (c, i) =>
+      i < richTextChunks.length - 1 && (c.plain_text?.length ?? 0) > EXPECTED_CHUNK_SIZE
+  );
+
   const firstParsed = safeParseJson(payloadStr);
   if (!firstParsed.ok) {
+    const errPos = firstParsed.error.match(/position (\d+)/)?.[1];
+    const posContext = errPos
+      ? (() => {
+          const p = parseInt(errPos, 10);
+          return ` — pos${errPos}:…${JSON.stringify(payloadStr.slice(Math.max(0, p - 40), p + 40))}…`;
+        })()
+      : "";
+    const oversizeWarn = hasOversizedChunk
+      ? " [WARN: oversized chunk detected — payload may have been written outside saveRunToNotion]"
+      : "";
     return {
       ok: false,
-      error: `JSON.parse failed: ${firstParsed.error} — preview: ${payloadStr.slice(0, 120)}`,
+      error: `JSON.parse failed: ${firstParsed.error}${posContext} — ${chunkSummary}${oversizeWarn} — preview: ${payloadStr.slice(0, 120)}`,
       runIdHint,
     };
   }
