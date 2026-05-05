@@ -45,6 +45,8 @@ interface NotionPage {
 
 export interface NotionPayloadDebug {
   run_id_hint: string;
+  page_id?: string;
+  chunk_count?: number;
   page_property_keys: string[];
   raw_payload_property_type: string;
   raw_payload_value_type: string;
@@ -64,6 +66,8 @@ export interface NotionPayloadDebug {
   validate_error?: string;
   /** project_progress 배열 크기 (0이면 rawTasks fallback 사용됨) */
   project_progress_count: number;
+  /** JSON 자동 수리가 적용된 경우 수리 내용 */
+  repair_note?: string;
 }
 
 /** 파싱에 실패한 payload 정보 — warning 표시용 */
@@ -114,6 +118,54 @@ function toRunStatus(value: unknown): RunStatus | null {
 
 function keysOf(value: unknown): string[] {
   return isRecord(value) ? Object.keys(value) : [];
+}
+
+/**
+ * Level-1 repair: 객체 값 문맥의 stray `]` 제거.
+ * `: "value"],` 패턴만 대상 — 배열 요소 마지막 `]`는 건드리지 않음.
+ * 예: "project_config_url":"텍스트"], → "project_config_url":"텍스트",
+ */
+function repairStrayBrackets(str: string): { repaired: string; wasRepaired: boolean } {
+  // `:"value"]` 패턴 — 콜론 뒤 문자열 값 다음 stray ] 만 제거
+  const repaired = str.replace(/(:\s*"(?:[^"\\]|\\.)*")\](?=[,}])/g, "$1");
+  return { repaired, wasRepaired: repaired !== str };
+}
+
+/**
+ * Level-2 repair: source_meta 섹션 전체를 {} 로 대체.
+ * source_meta는 화면 표시용이므로 손실해도 대시보드 동작에 영향 없음.
+ * bracket counting으로 중첩 객체를 정확히 찾아 교체.
+ */
+function repairByStrippingSourceMeta(str: string): { repaired: string; wasRepaired: boolean } {
+  const key = '"source_meta"';
+  const idx = str.indexOf(key);
+  if (idx === -1) return { repaired: str, wasRepaired: false };
+
+  // "source_meta": 뒤의 { 위치 탐색
+  let start = idx + key.length;
+  while (start < str.length && str[start] !== "{") start++;
+  if (start >= str.length) return { repaired: str, wasRepaired: false };
+
+  // bracket counting으로 matching } 탐색
+  let depth = 0;
+  let end = start;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < str.length; i++) {
+    const ch = str[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") { depth--; if (depth === 0) { end = i; break; } }
+  }
+
+  if (depth !== 0) return { repaired: str, wasRepaired: false };
+
+  const repaired = str.slice(0, idx) + '"source_meta":{}' + str.slice(end + 1);
+  return { repaired, wasRepaired: true };
 }
 
 function safeParseJson(raw: string): { ok: true; value: unknown } | { ok: false; error: string } {
@@ -218,6 +270,7 @@ function processNotionPage(page: NotionPage): PageProcessResult {
 
   const debugBase = {
     run_id_hint: runIdHint,
+    page_id: page.id,
     page_property_keys: Object.keys(props),
     raw_payload_property_type: rawPayloadPropertyType,
     raw_payload_value_type: typeof payloadStr,
@@ -242,7 +295,48 @@ function processNotionPage(page: NotionPage): PageProcessResult {
       i < richTextChunks.length - 1 && (c.plain_text?.length ?? 0) > EXPECTED_CHUNK_SIZE
   );
 
-  const firstParsed = safeParseJson(payloadStr);
+  // 1차 파싱 시도
+  let firstParsed = safeParseJson(payloadStr);
+  let repairNote = "";
+
+  // Level-1: stray ] 제거 후 재시도
+  if (!firstParsed.ok) {
+    const { repaired: r1, wasRepaired: w1 } = repairStrayBrackets(payloadStr);
+    if (w1) {
+      const retried = safeParseJson(r1);
+      if (retried.ok) {
+        console.warn(`[notion-summary] JSON repaired (stray ]) for run=${runIdHint}`);
+        firstParsed = retried;
+        repairNote = "[auto-repaired: stray ] removed]";
+        payloadStr = r1;
+      } else {
+        // Level-2: source_meta 섹션 제거 후 재시도
+        const { repaired: r2, wasRepaired: w2 } = repairByStrippingSourceMeta(r1);
+        if (w2) {
+          const retried2 = safeParseJson(r2);
+          if (retried2.ok) {
+            console.warn(`[notion-summary] JSON repaired (source_meta stripped) for run=${runIdHint}`);
+            firstParsed = retried2;
+            repairNote = "[auto-repaired: stray ] removed + source_meta stripped]";
+            payloadStr = r2;
+          }
+        }
+      }
+    } else {
+      // stray ] 없어도 source_meta 오류일 수 있으므로 Level-2 시도
+      const { repaired: r2, wasRepaired: w2 } = repairByStrippingSourceMeta(payloadStr);
+      if (w2) {
+        const retried2 = safeParseJson(r2);
+        if (retried2.ok) {
+          console.warn(`[notion-summary] JSON repaired (source_meta stripped) for run=${runIdHint}`);
+          firstParsed = retried2;
+          repairNote = "[auto-repaired: source_meta stripped]";
+          payloadStr = r2;
+        }
+      }
+    }
+  }
+
   if (!firstParsed.ok) {
     const errPos = firstParsed.error.match(/position (\d+)/)?.[1];
     const posContext = errPos
@@ -327,6 +421,8 @@ function processNotionPage(page: NotionPage): PageProcessResult {
     nested_path: unwrapped.nestedPath,
     normalize_warnings: allNormalizeWarnings,
     project_progress_count: projectProgressCount,
+    chunk_count: richTextChunks.length,
+    ...(repairNote ? { repair_note: repairNote } : {}),
   };
 
   // 기준일
