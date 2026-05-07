@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import type { DashboardTask } from "@/lib/notion-tasks";
 import type { NotionPayloadDebug } from "@/lib/notion-summary";
+import type { ProjectFallbackMode } from "@/lib/project-progress-view-model";
 
 // ── 탭 정의 ──────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,9 @@ export interface DashboardTabsProps {
   // 프로젝트 탭
   projectProgress: ProjectProgress[];
   isFallback: boolean;
+  projectFallbackMode?: ProjectFallbackMode;
+  parseErrorRunId?: string;
+  parseErrorMessage?: string;
 
   // 담당자 탭
   alertOwners: OwnerStatus[];
@@ -72,12 +76,14 @@ export interface DashboardTabsProps {
   sourceMeta?: SourceMetaV2;
   payloadDebug?: NotionPayloadDebug;
   // 수집 상태 요약용
+  runId?: string;
   source?: string;
   runStatus?: string;
   agentTaskCount?: number;
   slackSignalCount?: number;
   generatedBy?: string;
   createdAt?: string;
+  normalizedProjectCount?: number;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -131,10 +137,24 @@ export function DashboardTabs(props: DashboardTabsProps) {
 
 // ── 탭별 서브 컴포넌트 ─────────────────────────────────────────────────────────
 
-function ProjectsTab({ projectProgress, isFallback }: DashboardTabsProps) {
+function ProjectsTab({
+  projectProgress,
+  isFallback,
+  projectFallbackMode,
+  parseErrorRunId,
+  parseErrorMessage,
+  rawTasks,
+}: DashboardTabsProps) {
   return (
     <div>
-      <ProjectProgressView items={projectProgress} isFallback={isFallback} />
+      <ProjectProgressView
+        items={projectProgress}
+        isFallback={isFallback}
+        fallbackMode={projectFallbackMode}
+        parseErrorRunId={parseErrorRunId}
+        parseErrorMessage={parseErrorMessage}
+        rawTasks={rawTasks}
+      />
     </div>
   );
 }
@@ -155,7 +175,8 @@ function ChangesTabPanel({ trend }: DashboardTabsProps) {
 
 function RawTab(props: DashboardTabsProps) {
   return (
-    <RawDataTab
+      <RawDataTab
+      runId={props.runId}
       source={props.source}
       runStatus={props.runStatus}
       rawTaskCount={props.rawTasks.length}
@@ -172,6 +193,10 @@ function RawTab(props: DashboardTabsProps) {
       errors={props.errors}
       sourceMeta={props.sourceMeta}
       payloadDebug={props.payloadDebug}
+      projectFallbackMode={props.projectFallbackMode}
+      parseErrorRunId={props.parseErrorRunId}
+      parseErrorMessage={props.parseErrorMessage}
+      normalizedProjectCount={props.normalizedProjectCount}
     />
   );
 }

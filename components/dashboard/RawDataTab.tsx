@@ -378,6 +378,7 @@ function PayloadDebugPanel({ debug }: { debug?: NotionPayloadDebug }) {
 
 export interface RawDataTabProps {
   // 수집 상태
+  runId?: string;
   source?: string;
   runStatus?: string;
   rawTaskCount: number;
@@ -402,9 +403,14 @@ export interface RawDataTabProps {
   // 메타
   sourceMeta?: SourceMetaV2;
   payloadDebug?: NotionPayloadDebug;
+  projectFallbackMode?: string;
+  parseErrorRunId?: string;
+  parseErrorMessage?: string;
+  normalizedProjectCount?: number;
 }
 
 export function RawDataTab({
+  runId,
   source,
   runStatus,
   rawTaskCount,
@@ -421,6 +427,10 @@ export function RawDataTab({
   errors,
   sourceMeta,
   payloadDebug,
+  projectFallbackMode,
+  parseErrorRunId,
+  parseErrorMessage,
+  normalizedProjectCount,
 }: RawDataTabProps) {
 
   // allSignals에서 unlinked를 제외한 "연결된" signals
@@ -495,7 +505,55 @@ export function RawDataTab({
       {/* 6. 수집 메타 정보 */}
       <SourceMetaDetail meta={sourceMeta} />
 
-      {/* 7. Payload 디버그 */}
+      {/* 7. 프로젝트 상세 디버그 */}
+      <section>
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+          <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
+            프로젝트 상세 디버그
+          </h2>
+          <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-xs">
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">current run_id</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">{runId ?? "–"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">payload parse status</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">
+                {parseErrorMessage
+                  ? "parse_failed"
+                  : payloadDebug?.repair_note
+                  ? "repaired"
+                  : payloadDebug
+                  ? "ok"
+                  : "unknown"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">project fallback mode</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">{projectFallbackMode ?? "agent"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">rawTasks count</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">{rawTaskCount}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">normalized project count</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">{normalizedProjectCount ?? "–"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">parse error run_id</dt>
+              <dd className="font-mono text-gray-700 mt-0.5">{parseErrorRunId ?? "–"}</dd>
+            </div>
+          </dl>
+          {parseErrorMessage && (
+            <p className="mt-2 text-xs font-mono text-red-700 break-all">
+              {parseErrorMessage}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* 8. Payload 디버그 */}
       <PayloadDebugPanel debug={payloadDebug} />
 
     </div>

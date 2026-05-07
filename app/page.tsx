@@ -9,6 +9,7 @@ import {
 } from "@/lib/notion-tasks";
 import type { DashboardTask } from "@/lib/notion-tasks";
 import { buildProjectProgressFallback } from "@/lib/project-progress";
+import type { ProjectFallbackMode } from "@/lib/project-progress-view-model";
 import { isV2Payload, isV1Payload } from "@/lib/types";
 import type { WorkStatusPayloadV2, WorkStatusPayload, SlackSignal, ProjectProgress } from "@/lib/types";
 
@@ -195,6 +196,18 @@ export default async function HomePage() {
   const allSignals = Array.isArray(v2?.slack_signals) ? v2!.slack_signals! : [];
   const { enriched: projectProgress, unlinked: unlinkedSignals } =
     distributeSlackSignals(baseProgress, allSignals);
+  const latestInvalidPayload = invalidPayloads?.[0];
+  const projectFallbackMode: ProjectFallbackMode = agentHasProjectProgress
+    ? "agent"
+    : latestInvalidPayload
+    ? "invalid_payload"
+    : "missing_project_progress";
+  const rawOnlyFallbackMode: ProjectFallbackMode = latestInvalidPayload
+    ? "invalid_payload"
+    : "raw_tasks_only";
+  const projectParseErrorRunId =
+    latestInvalidPayload?.run_id ?? latestInvalidPayload?.page_id ?? undefined;
+  const projectParseErrorMessage = latestInvalidPayload?.error;
 
   // 오늘 확인 요약 건수
   const confirmCount = projectProgress.reduce(
@@ -283,7 +296,7 @@ export default async function HomePage() {
                   ⚠ 최신 payload 파싱 실패 — Agent 판단 없이 원본 작업 기반으로 표시됩니다.
                 </p>
                 <p className="text-xs text-red-700 mb-2">
-                  조치: Agent를 다시 실행해 최신 payload를 재생성하세요.
+                  조치: payload 재생성보다 먼저 저장된 payload의 실패 위치와 대시보드 read path를 확인하세요.
                 </p>
               </>
             ) : (
@@ -292,7 +305,7 @@ export default async function HomePage() {
                   최신 payload 파싱 실패 — 이전 유효 payload를 표시 중입니다.
                 </p>
                 <p className="text-xs text-amber-700 mb-2">
-                  조치: Agent를 다시 실행해 최신 payload를 재생성하세요.
+                  조치: payload 재생성보다 먼저 저장된 payload의 실패 위치와 대시보드 read path를 확인하세요.
                 </p>
               </>
             )}
@@ -312,6 +325,10 @@ export default async function HomePage() {
             <ProjectProgressView
               items={buildProjectProgressFallback(rawTasks)}
               isFallback
+              fallbackMode={rawOnlyFallbackMode}
+              parseErrorRunId={projectParseErrorRunId}
+              parseErrorMessage={projectParseErrorMessage}
+              rawTasks={rawTasks}
             />
             <OwnerAlertSummary owners={alertOwners} />
             <AllTasksTable
@@ -340,6 +357,9 @@ export default async function HomePage() {
             priorityProjects={Array.isArray(v2.overview?.priority_projects) ? v2.overview.priority_projects : undefined}
             projectProgress={projectProgress}
             isFallback={!agentHasProjectProgress}
+            projectFallbackMode={projectFallbackMode}
+            parseErrorRunId={projectParseErrorRunId}
+            parseErrorMessage={projectParseErrorMessage}
             alertOwners={alertOwners}
             teams={effectiveTeams}
             taskOwners={taskOwners}
@@ -353,12 +373,14 @@ export default async function HomePage() {
             warnings={v2.warnings}
             sourceMeta={v2.source_meta}
             payloadDebug={payloadDebug}
+            runId={runId}
             source={source}
             runStatus={status}
             agentTaskCount={v2?.tasks?.length}
             slackSignalCount={allSignals.length}
             generatedBy={generatedBy ?? v2?.source_meta?.generated_by}
             createdAt={createdAt}
+            normalizedProjectCount={projectProgress.length}
           />
         )}
 
@@ -370,6 +392,10 @@ export default async function HomePage() {
                 <ProjectProgressView
                   items={buildProjectProgressFallback(rawTasks)}
                   isFallback
+                  fallbackMode={rawOnlyFallbackMode}
+                  parseErrorRunId={projectParseErrorRunId}
+                  parseErrorMessage={projectParseErrorMessage}
+                  rawTasks={rawTasks}
                 />
                 <OwnerAlertSummary owners={alertOwners} />
                 <AllTasksTable

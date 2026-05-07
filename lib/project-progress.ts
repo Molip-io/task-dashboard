@@ -3,7 +3,14 @@
  * Agent payload에 project_progress가 없을 때만 사용한다.
  */
 
-import type { ProjectProgress, Workstream } from "./types";
+import type {
+  FunctionBreakdownItem,
+  OwnerBreakdownItem,
+  ProjectProgress,
+  ProjectDataHealth,
+  SprintStatusItem,
+  Workstream,
+} from "./types";
 import type { DashboardTask } from "./notion-tasks";
 
 // Sprint/Version 패턴 — task_name 또는 sprint 필드에서 추출
@@ -70,6 +77,96 @@ function workstreamStatus(tasks: DashboardTask[]): string {
   return "예정";
 }
 
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function buildOwnerStatus(tasks: DashboardTask[]): OwnerBreakdownItem[] {
+  const ownerMap = new Map<string, DashboardTask[]>();
+
+  for (const task of tasks) {
+    const owners = task.owners.length ? task.owners : [task.owner];
+    for (const owner of owners.filter(Boolean)) {
+      if (!ownerMap.has(owner)) ownerMap.set(owner, []);
+      ownerMap.get(owner)!.push(task);
+    }
+  }
+
+  return Array.from(ownerMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b, "ko"))
+    .map(([owner, ownerTasks]) => {
+      const activeCount = ownerTasks.filter((task) => !task.is_done).length;
+      const overdueCount = ownerTasks.filter((task) => task.is_overdue).length;
+      const summary =
+        overdueCount > 0
+          ? `미완료 ${activeCount}건 · 마감 초과 ${overdueCount}건`
+          : `미완료 ${activeCount}건`;
+
+      return {
+        owner,
+        status:
+          overdueCount > 0
+            ? "risk"
+            : ownerTasks.some((task) => task.is_active)
+            ? "normal"
+            : undefined,
+        summary,
+        tasks: ownerTasks.map((task) => task.task_name),
+      };
+    });
+}
+
+function buildSprintStatus(tasks: DashboardTask[]): SprintStatusItem[] {
+  const sprintMap = new Map<string, DashboardTask[]>();
+
+  for (const task of tasks) {
+    const sprint = extractWorkstreamLabel(task);
+    if (!/^SP\d+$/i.test(sprint) && !/^Sprint\s+\d+$/i.test(sprint)) continue;
+    if (!sprintMap.has(sprint)) sprintMap.set(sprint, []);
+    sprintMap.get(sprint)!.push(task);
+  }
+
+  return Array.from(sprintMap.entries())
+    .sort(([a], [b]) => sortLabel(a, b))
+    .map(([sprint, sprintTasks]) => ({
+      sprint,
+      status: workstreamStatus(sprintTasks),
+      summary: `${sprintTasks.filter((task) => !task.is_done).length}건 미완료`,
+      owners: unique(sprintTasks.flatMap((task) => task.owners.length ? task.owners : [task.owner])),
+      items: sprintTasks.map((task) => task.task_name),
+    }));
+}
+
+function buildFunctionStatus(tasks: DashboardTask[]): FunctionBreakdownItem[] {
+  return tasks
+    .map((task) => ({
+      function: task.task_name,
+      status: workstreamStatus([task]),
+      summary: [task.status, task.deadline ? `마감 ${task.deadline}` : ""]
+        .filter(Boolean)
+        .join(" · "),
+      owners: task.owners.length ? task.owners : [task.owner].filter(Boolean),
+      track: task.team,
+    }))
+    .slice(0, 12);
+}
+
+function buildProjectDataHealth(tasks: DashboardTask[]): ProjectDataHealth {
+  const overdueCount = tasks.filter((task) => task.is_overdue).length;
+  const dueSoonCount = tasks.filter((task) => task.is_due_soon).length;
+
+  return {
+    status: overdueCount > 0 ? "low" : dueSoonCount > 0 ? "medium" : "medium",
+    notion_task_coverage: tasks.length > 0 ? "strong" : "none",
+    owner_mapping: tasks.some((task) => task.owners.length > 0 || task.owner) ? "sufficient" : "none",
+    schedule_coverage: tasks.some((task) => task.deadline || task.sprint) ? "sufficient" : "partial",
+    conflict_count: 0,
+    stale_task_count: 0,
+    confidence_score: overdueCount > 0 ? 55 : 70,
+    notes: ["원본 작업 기반 최소 요약을 안전하게 표시합니다."],
+  };
+}
+
 // SP 숫자 기반 정렬 (SP57 < SP58 < ...), 없으면 문자 순
 function sortLabel(a: string, b: string): number {
   const na = a.match(/(\d+)/)?.[1];
@@ -133,11 +230,35 @@ export function buildProjectProgressFallback(
         ? `${active}건 진행 중 / 미완료 ${total}건`
         : `미완료 ${total}건`;
 
+    const ownerStatus = buildOwnerStatus(tasks);
+    const sprintStatus = buildSprintStatus(tasks);
+    const functionStatus = buildFunctionStatus(tasks);
+    const projectDataHealth = buildProjectDataHealth(tasks);
+
     result.push({
       project,
       current_summary: summary,
+      display_summary: summary,
+      summary,
+      status: overdue > 0 ? "risk" : tasks.some((task) => task.is_due_soon) ? "watch" : "normal",
       workstreams,
+      function_status: functionStatus,
+      sprint_status: sprintStatus,
+      owner_status: ownerStatus,
       needs_confirmation: needsConfirm.length ? needsConfirm : undefined,
+      confirmation_queue: needsConfirm.length
+        ? needsConfirm.map((item) => ({
+            item: item.item,
+            owner: item.owner,
+            reason: item.reason,
+            timing: item.reason === "마감 초과" ? "today" : "this_week",
+            owner_status: item.owner ? "assigned" : "unknown",
+          }))
+        : undefined,
+      risks: overdue > 0 ? [`마감 초과 ${overdue}건`] : undefined,
+      data_conflicts: [],
+      stale_tasks: [],
+      project_data_health: projectDataHealth,
     });
   }
 

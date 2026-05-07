@@ -55,6 +55,21 @@ interface TrackBreakdownItem {
   [key: string]: unknown;
 }
 
+function stringList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function arrayOrEmpty(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function normalizeTrackBreakdown(value: unknown): TrackBreakdownItem[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (Array.isArray(value)) return value as TrackBreakdownItem[];
@@ -108,6 +123,20 @@ function normalizeWorkstream(ws: unknown): unknown {
     if (fixed !== undefined) w.schedule_notes = fixed;
   }
 
+  if (!Array.isArray(w.function_breakdown)) w.function_breakdown = [];
+  if (!Array.isArray(w.owner_breakdown)) w.owner_breakdown = [];
+  if (!Array.isArray(w.slack_signals)) w.slack_signals = [];
+  if (!Array.isArray(w.risks)) w.risks = [];
+  if (!Array.isArray(w.items)) {
+    if (Array.isArray(w.tasks)) {
+      w.items = w.tasks;
+    } else if (Array.isArray(w.key_tasks)) {
+      w.items = w.key_tasks;
+    } else {
+      w.items = [];
+    }
+  }
+
   return w;
 }
 
@@ -158,22 +187,47 @@ function normalizeProjectProgress(pp: unknown): unknown {
   // workstreams
   if (Array.isArray(p.workstreams)) {
     p.workstreams = p.workstreams.map(normalizeWorkstream);
+  } else {
+    p.workstreams = [];
   }
 
   // stale_tasks
   if (Array.isArray(p.stale_tasks)) {
     p.stale_tasks = p.stale_tasks.map(normalizeStaleTask);
+  } else {
+    p.stale_tasks = [];
   }
 
   // confirmation_queue
   if (Array.isArray(p.confirmation_queue)) {
     p.confirmation_queue = p.confirmation_queue.map(normalizeConfirmationItem);
+  } else {
+    p.confirmation_queue = [];
   }
 
   // schedule_notes at project level
   if ("schedule_notes" in p) {
     const fixed = normalizeScheduleNotes(p.schedule_notes);
     if (fixed !== undefined) p.schedule_notes = fixed;
+  }
+
+  p.function_status = arrayOrEmpty(p.function_status);
+  p.sprint_status = arrayOrEmpty(p.sprint_status);
+  p.owner_status = arrayOrEmpty(p.owner_status);
+  p.data_conflicts = arrayOrEmpty(p.data_conflicts);
+  p.risks = Array.isArray(p.risks) ? stringList(p.risks) : [];
+  p.next_actions = Array.isArray(p.next_actions) ? stringList(p.next_actions) : [];
+  p.slack_signals = arrayOrEmpty(p.slack_signals);
+  p.needs_confirmation = arrayOrEmpty(p.needs_confirmation);
+
+  if (typeof p.project_data_health === "object" && p.project_data_health !== null) {
+    const health = { ...(p.project_data_health as Record<string, unknown>) };
+    health.notes = stringList(health.notes);
+    p.project_data_health = health;
+  } else if (p.project_data_health !== undefined && p.project_data_health !== null) {
+    p.project_data_health = {
+      notes: [],
+    };
   }
 
   return p;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Component, type ReactNode, useState } from "react";
 import type {
   ProjectProgress,
   ProjectDataHealth,
@@ -15,6 +15,14 @@ import type {
   ConfirmationNeeded,
   ActionType,
 } from "@/lib/types";
+import type { DashboardTask } from "@/lib/notion-tasks";
+import {
+  buildProjectProgressViewModel,
+  countTasksForProject,
+  safeArray,
+  type ProjectFallbackMode,
+  type ProjectProgressViewModel,
+} from "@/lib/project-progress-view-model";
 import { StatusBadge, SignalBadge, Section } from "./shared";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -159,6 +167,7 @@ function ActionTypeBadge({ type }: { type: ActionType | string }) {
 function DataHealthBadge({ health }: { health: ProjectDataHealth }) {
   const score = health.confidence_score;
   const status = health.status;
+  const notes = safeArray<string>(health.notes);
   const cls =
     status === "high" ? "text-green-600" :
     status === "medium" ? "text-yellow-600" : "text-red-600";
@@ -175,7 +184,7 @@ function DataHealthBadge({ health }: { health: ProjectDataHealth }) {
         {health.schedule_coverage && <p>일정 정보: {health.schedule_coverage}</p>}
         {(health.conflict_count ?? 0) > 0 && <p>불일치: {health.conflict_count}</p>}
         {(health.stale_task_count ?? 0) > 0 && <p>오래된 업무: {health.stale_task_count}</p>}
-        {health.notes?.map((n, i) => (
+        {notes.map((n, i) => (
           <p key={i} className="text-gray-400 italic">{n}</p>
         ))}
       </div>
@@ -322,31 +331,45 @@ function OwnerBreakdownSection({
           <li key={i} className="flex items-start gap-1.5 text-xs">
             <span className="shrink-0 text-gray-400">👤</span>
             <div>
-              <span className="font-medium text-gray-800">{o.owner}</span>
-              {o.status && (
-                <span className="text-gray-400 ml-1">({o.status})</span>
-              )}
-              {o.summary && (
-                <p className="text-gray-500 mt-0.5 leading-snug">{o.summary}</p>
-              )}
-              {(o.tasks?.length ?? 0) > 0 && (
-                <p className="text-gray-400 mt-0.5">
-                  {o.tasks!.slice(0, 2).join(", ")}
-                  {o.tasks!.length > 2 ? ` +${o.tasks!.length - 2}` : ""}
-                </p>
-              )}
-              {(o.questions?.length ?? 0) > 0 && (
-                <ul className="mt-0.5 space-y-0.5">
-                  {o.questions!.map((q, qi) => (
-                    <li key={qi} className="text-amber-700">
-                      {q.function ?? q.track ?? q.workstream
-                        ? `[${q.function ?? q.track ?? q.workstream}] `
-                        : ""}
-                      {q.question}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {(() => {
+                const tasks = safeArray<string>(o.tasks);
+                const questions = safeArray<{
+                  function?: string | null;
+                  track?: string;
+                  workstream?: string;
+                  question: string;
+                }>(o.questions);
+
+                return (
+                  <>
+                    <span className="font-medium text-gray-800">{o.owner}</span>
+                    {o.status && (
+                      <span className="text-gray-400 ml-1">({o.status})</span>
+                    )}
+                    {o.summary && (
+                      <p className="text-gray-500 mt-0.5 leading-snug">{o.summary}</p>
+                    )}
+                    {tasks.length > 0 && (
+                      <p className="text-gray-400 mt-0.5">
+                        {tasks.slice(0, 2).join(", ")}
+                        {tasks.length > 2 ? ` +${tasks.length - 2}` : ""}
+                      </p>
+                    )}
+                    {questions.length > 0 && (
+                      <ul className="mt-0.5 space-y-0.5">
+                        {questions.map((q, qi) => (
+                          <li key={qi} className="text-amber-700">
+                            {q.function ?? q.track ?? q.workstream
+                              ? `[${q.function ?? q.track ?? q.workstream}] `
+                              : ""}
+                            {q.question}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </li>
         ))}
@@ -395,7 +418,7 @@ function WorkstreamCard({ ws }: { ws: Workstream }) {
     (typeof ws.evidence === "string" ? ws.evidence : undefined) ??
     "";
   const nextAction = ws.next_action ?? (w.nextAction as string) ?? "";
-  const items: string[] = ws.items ?? (w.key_tasks as string[]) ?? (w.tasks as string[]) ?? [];
+  const items = safeArray<string>(ws.items ?? (w.key_tasks as string[]) ?? (w.tasks as string[]));
 
   const tracks        = Array.isArray(ws.track_breakdown)    ? ws.track_breakdown    : [];
   const functions     = Array.isArray(ws.function_breakdown) ? ws.function_breakdown : [];
@@ -659,40 +682,258 @@ function StaleTasksSection({ tasks }: { tasks: StaleTask[] }) {
   );
 }
 
+// ── Project detail tabs / boundary ───────────────────────────────────────────
+
+type DetailTabId = "functions" | "owners" | "sprints" | "workstreams" | "risks";
+
+const DETAIL_TABS: Array<{ id: DetailTabId; label: string }> = [
+  { id: "functions", label: "기능 현황" },
+  { id: "owners", label: "담당자" },
+  { id: "sprints", label: "스프린트" },
+  { id: "workstreams", label: "Workstream" },
+  { id: "risks", label: "근거/리스크" },
+];
+
+function EmptyTabState({ message }: { message: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+      {message}
+    </div>
+  );
+}
+
+function SprintStatusSection({ items }: { items: import("@/lib/types").SprintStatusItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="space-y-2">
+      {items.map((item, index) => (
+        <div key={`${item.sprint}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-gray-800">{item.sprint}</span>
+            {item.status && <WsStatusBadge status={item.status} />}
+          </div>
+          {item.summary && (
+            <p className="mt-1 text-sm text-gray-600 leading-snug">{item.summary}</p>
+          )}
+          {safeArray<string>(item.owners).length > 0 && (
+            <p className="mt-1 text-xs text-indigo-700">
+              담당: {safeArray<string>(item.owners).join(", ")}
+            </p>
+          )}
+          {safeArray<string>(item.items).length > 0 && (
+            <ul className="mt-1.5 space-y-0.5">
+              {safeArray<string>(item.items).slice(0, 4).map((task, taskIndex) => (
+                <li key={taskIndex} className="text-xs text-gray-500">
+                  - {task}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FallbackContextSection({ vm }: { vm: ProjectProgressViewModel }) {
+  if (vm.fallbackMode === "agent" && !vm.parseErrorMessage) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+      <p className="text-xs font-semibold text-amber-800">
+        {vm.fallbackNotice ?? "프로젝트 상세는 방어적으로 렌더링됩니다."}
+      </p>
+      <div className="mt-1 space-y-0.5 text-xs text-amber-700">
+        {vm.parseErrorRunId && <p>run: {vm.parseErrorRunId}</p>}
+        {vm.parseErrorMessage && <p>parse: {vm.parseErrorMessage}</p>}
+        {vm.rawTaskCount > 0 && <p>rawTasks: {vm.rawTaskCount}건</p>}
+      </div>
+    </div>
+  );
+}
+
+interface ProjectDetailBoundaryProps {
+  projectName: string;
+  payloadStatus: ProjectFallbackMode;
+  parseErrorRunId?: string;
+  children: ReactNode;
+}
+
+interface ProjectDetailBoundaryState {
+  hasError: boolean;
+  message?: string;
+}
+
+class ProjectDetailErrorBoundary extends Component<
+  ProjectDetailBoundaryProps,
+  ProjectDetailBoundaryState
+> {
+  override state: ProjectDetailBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): ProjectDetailBoundaryState {
+    return {
+      hasError: true,
+      message: error.message,
+    };
+  }
+
+  override componentDidCatch(error: Error) {
+    console.error("[ProjectDetailErrorBoundary]", error);
+  }
+
+  override render() {
+    if (!this.state.hasError) return this.props.children;
+
+    const showDevMessage = process.env.NODE_ENV !== "production";
+
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm">
+        <p className="font-semibold text-red-800">
+          프로젝트 상세를 불러오지 못했습니다. 데이터 형식이 예상과 다를 수 있습니다.
+        </p>
+        <div className="mt-2 space-y-1 text-xs text-red-700">
+          <p>project: {this.props.projectName}</p>
+          <p>payload status: {this.props.payloadStatus}</p>
+          {this.props.parseErrorRunId && <p>run: {this.props.parseErrorRunId}</p>}
+          {showDevMessage && this.state.message && <p>error: {this.state.message}</p>}
+        </div>
+      </div>
+    );
+  }
+}
+
+function ProjectDetailBody({ vm }: { vm: ProjectProgressViewModel }) {
+  const [activeTab, setActiveTab] = useState<DetailTabId>("functions");
+  const hasFunctionData = vm.function_status.length > 0;
+  const hasOwnerData = vm.owner_status.length > 0;
+  const hasSprintData = vm.sprint_status.length > 0;
+  const hasWorkstreamData = vm.workstreams.length > 0;
+  const hasRiskData =
+    vm.risks.length > 0 ||
+    vm.data_conflicts.length > 0 ||
+    vm.stale_tasks.length > 0 ||
+    vm.parseErrorMessage !== undefined ||
+    vm.rawTaskCount > 0;
+
+  return (
+    <>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {DETAIL_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium ${
+              activeTab === tab.id
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                : "border-gray-200 bg-white text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {activeTab === "functions" && (
+          hasFunctionData ? (
+            <FunctionBreakdownSection functions={vm.function_status} />
+          ) : (
+            <EmptyTabState message="기능 현황 데이터가 없어도 프로젝트 상세는 계속 볼 수 있습니다." />
+          )
+        )}
+
+        {activeTab === "owners" && (
+          hasOwnerData ? (
+            <OwnerBreakdownSection owners={vm.owner_status} functionBreakdown={vm.function_status} />
+          ) : (
+            <EmptyTabState message="담당자 정보가 아직 정리되지 않았습니다." />
+          )
+        )}
+
+        {activeTab === "sprints" && (
+          hasSprintData ? (
+            <SprintStatusSection items={vm.sprint_status} />
+          ) : (
+            <EmptyTabState message="스프린트 정보가 없거나 task 제목에서 패턴을 찾지 못했습니다." />
+          )
+        )}
+
+        {activeTab === "workstreams" && (
+          hasWorkstreamData ? (
+            <div className="space-y-3">
+              {vm.workstreams.map((ws, index) => (
+                <WorkstreamCard key={`${ws.label}-${index}`} ws={ws} />
+              ))}
+            </div>
+          ) : (
+            <EmptyTabState message="Workstream 데이터가 없어 빈 상태로 표시합니다." />
+          )
+        )}
+
+        {activeTab === "risks" && (
+          <div className="space-y-3">
+            <FallbackContextSection vm={vm} />
+            <DataConflictsSection conflicts={vm.data_conflicts} />
+            <StaleTasksSection tasks={vm.stale_tasks} />
+            {vm.risks.length > 0 ? (
+              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-3">
+                <p className="text-xs font-bold text-red-500 uppercase tracking-wide mb-1">리스크</p>
+                <ul className="space-y-0.5">
+                  {vm.risks.map((risk, index) => (
+                    <li key={index} className="flex items-start gap-1.5 text-sm text-red-700">
+                      <span className="shrink-0">⚠</span>
+                      <span>{risk}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {!hasRiskData && (
+              <EmptyTabState message="근거/리스크 데이터가 없어도 상세 보기는 유지됩니다." />
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ── Project detail panel ──────────────────────────────────────────────────────
 
-function ProjectDetail({ pp, isFallback }: { pp: ProjectProgress; isFallback: boolean }) {
-  const displaySummary = pp.display_summary ?? pp.current_summary ?? pp.summary ?? "";
-  const workstreams  = Array.isArray(pp.workstreams)    ? pp.workstreams    : [];
-  const risks        = Array.isArray(pp.risks)          ? pp.risks          : [];
-  const nextActions  = Array.isArray(pp.next_actions)   ? pp.next_actions   : [];
-  const dataConflicts = Array.isArray(pp.data_conflicts) ? pp.data_conflicts : [];
-  const staleTasks   = Array.isArray(pp.stale_tasks)    ? pp.stale_tasks    : [];
+function ProjectDetail({
+  vm,
+  isFallback,
+}: {
+  vm: ProjectProgressViewModel;
+  isFallback: boolean;
+}) {
+  const displaySummary = vm.display_summary ?? vm.current_summary ?? "";
 
   return (
     <div className="bg-white rounded-xl border-2 border-gray-200 p-5 shadow-sm">
       {/* Header */}
       <div className="flex items-start gap-2 mb-1 flex-wrap">
-        {pp.priority_rank !== undefined && (
-          <span className="text-xs font-bold text-gray-400 mt-1">#{pp.priority_rank}</span>
+        {vm.priority_rank !== undefined && (
+          <span className="text-xs font-bold text-gray-400 mt-1">#{vm.priority_rank}</span>
         )}
-        <h3 className="font-bold text-gray-900 text-base leading-snug">{pp.project}</h3>
-        {pp.status && <StatusBadge status={pp.status} size="xs" />}
+        <h3 className="font-bold text-gray-900 text-base leading-snug">{vm.project}</h3>
+        {vm.status && <StatusBadge status={vm.status} size="xs" />}
         {isFallback && (
           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
             자동 생성
           </span>
         )}
-        {pp.priority_score !== undefined && (
-          <span className="text-xs text-gray-400 mt-1">{pp.priority_score}점</span>
+        {vm.priority_score !== undefined && (
+          <span className="text-xs text-gray-400 mt-1">{vm.priority_score}점</span>
         )}
-        {pp.confidence_score !== undefined && (
-          <span className="text-xs text-gray-400 mt-1">신뢰도 {pp.confidence_score}</span>
+        {vm.confidence_score !== undefined && (
+          <span className="text-xs text-gray-400 mt-1">신뢰도 {vm.confidence_score}</span>
         )}
       </div>
 
-      {pp.priority_reason && (
-        <p className="text-xs text-gray-500 mb-1 leading-snug">{pp.priority_reason}</p>
+      {vm.priority_reason && (
+        <p className="text-xs text-gray-500 mb-1 leading-snug">{vm.priority_reason}</p>
       )}
       {displaySummary && (
         <div className="text-sm text-gray-600 mb-2 leading-snug whitespace-pre-line">
@@ -701,55 +942,33 @@ function ProjectDetail({ pp, isFallback }: { pp: ProjectProgress; isFallback: bo
       )}
 
       {/* Data Health */}
-      {pp.project_data_health && <DataHealthBadge health={pp.project_data_health} />}
+      <DataHealthBadge health={vm.project_data_health} />
 
       {/* CEO Actions */}
-      <CeoActionsSection pp={pp} />
-
-      {/* Workstreams */}
-      {workstreams.length > 0 && (
-        <div className="mt-4 space-y-3">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
-            Workstream ({workstreams.length})
-          </p>
-          {workstreams.map((ws, i) => <WorkstreamCard key={i} ws={ws} />)}
-        </div>
-      )}
+      <CeoActionsSection pp={vm as unknown as ProjectProgress} />
 
       {/* Schedule notes */}
-      {pp.schedule_notes && (
+      {vm.schedule_notes && (
         <div className="mt-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">일정 메모</p>
-          <p className="mt-0.5 text-sm text-gray-700 whitespace-pre-line">{pp.schedule_notes}</p>
+          <p className="mt-0.5 text-sm text-gray-700 whitespace-pre-line">{vm.schedule_notes}</p>
         </div>
       )}
 
-      {/* Data conflicts */}
-      <DataConflictsSection conflicts={dataConflicts} />
-
-      {/* Stale tasks */}
-      <StaleTasksSection tasks={staleTasks} />
-
-      {/* Project-level risks */}
-      {risks.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs font-bold text-red-500 uppercase tracking-wide mb-1">리스크</p>
-          <ul className="space-y-0.5">
-            {risks.map((r, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-sm text-red-700">
-                <span className="shrink-0">⚠</span><span>{r}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <ProjectDetailErrorBoundary
+        projectName={vm.project}
+        payloadStatus={vm.fallbackMode}
+        parseErrorRunId={vm.parseErrorRunId}
+      >
+        <ProjectDetailBody vm={vm} />
+      </ProjectDetailErrorBoundary>
 
       {/* Next actions */}
-      {nextActions.length > 0 && (
+      {vm.next_actions.length > 0 && (
         <div className="mt-3 border-t border-gray-100 pt-3">
           <p className="text-xs font-bold text-indigo-500 uppercase tracking-wide mb-1">다음 액션</p>
           <ul className="space-y-0.5">
-            {nextActions.map((a, i) => (
+            {vm.next_actions.map((a, i) => (
               <li key={i} className="flex items-start gap-1.5 text-sm text-indigo-700">
                 <span className="shrink-0">→</span><span>{a}</span>
               </li>
@@ -766,13 +985,25 @@ function ProjectDetail({ pp, isFallback }: { pp: ProjectProgress; isFallback: bo
 interface Props {
   items: ProjectProgress[];
   isFallback?: boolean;
+  fallbackMode?: ProjectFallbackMode;
+  parseErrorRunId?: string;
+  parseErrorMessage?: string;
+  rawTasks?: DashboardTask[];
 }
 
-export function ProjectProgressView({ items, isFallback = false }: Props) {
-  const sorted = sortProjectsByPriority(items);
+export function ProjectProgressView({
+  items,
+  isFallback = false,
+  fallbackMode = isFallback ? "missing_project_progress" : "agent",
+  parseErrorRunId,
+  parseErrorMessage,
+  rawTasks = [],
+}: Props) {
+  const safeItems = safeArray<ProjectProgress>(items);
+  const sorted = sortProjectsByPriority(safeItems);
   const [selectedIndex, setSelectedIndex] = useState(() => defaultSelectedIndex(sorted));
 
-  if (!items.length) {
+  if (!safeItems.length) {
     return (
       <Section title="프로젝트 진행 판단">
         <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-8 text-center">
@@ -788,13 +1019,26 @@ export function ProjectProgressView({ items, isFallback = false }: Props) {
   }
 
   const safeIndex = Math.min(selectedIndex, sorted.length - 1);
-  const selected  = sorted[safeIndex];
+  const selected = sorted[safeIndex];
+  const selectedVm = selected
+    ? buildProjectProgressViewModel(selected, {
+        isFallback,
+        fallbackMode,
+        parseErrorRunId,
+        parseErrorMessage,
+        rawTaskCount: countTasksForProject(rawTasks, selected.project),
+      })
+    : null;
 
   return (
     <Section title={`프로젝트 진행 판단 (${sorted.length})`}>
       {isFallback && (
         <p className="text-xs text-gray-400 mb-3">
-          Agent payload의 project_progress가 없어 rawTasks 기반으로 자동 생성된 현황입니다.
+          {fallbackMode === "invalid_payload"
+            ? "Agent payload 파싱 실패로 원본 작업 기반 상세를 표시합니다."
+            : fallbackMode === "raw_tasks_only"
+            ? "판단 payload 없이 rawTasks 기반 상세를 표시합니다."
+            : "Agent payload의 project_progress가 없어 rawTasks 기반으로 자동 생성된 현황입니다."}
         </p>
       )}
 
@@ -814,7 +1058,7 @@ export function ProjectProgressView({ items, isFallback = false }: Props) {
       </div>
 
       {/* 선택 프로젝트 상세 */}
-      {selected && <ProjectDetail pp={selected} isFallback={isFallback} />}
+      {selectedVm && <ProjectDetail vm={selectedVm} isFallback={isFallback} />}
     </Section>
   );
 }

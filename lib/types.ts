@@ -211,6 +211,14 @@ export interface OwnerBreakdownItem {
   questions?: OwnerQuestion[];
 }
 
+export interface SprintStatusItem {
+  sprint: string;
+  status?: string;
+  summary?: string;
+  owners?: string[];
+  items?: string[];
+}
+
 export interface DataConflict {
   severity?: "low" | "medium" | "high";
   description: string;
@@ -303,6 +311,9 @@ export interface ProjectProgress {
   data_conflicts?: DataConflict[];
   stale_tasks?: StaleTask[];
   function_breakdown?: FunctionBreakdownItem[];
+  function_status?: FunctionBreakdownItem[];
+  sprint_status?: SprintStatusItem[];
+  owner_status?: OwnerBreakdownItem[];
   // v2.4
   priority_score?: number;
   priority_rank?: number;

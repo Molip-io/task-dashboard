@@ -546,7 +546,7 @@ export async function getLatestRunFromNotion(): Promise<
       error: [
         `최신 payload 파싱 실패 (run: ${runLabel})`,
         `오류: ${result.error}`,
-        `조치: Agent를 다시 실행해 최신 payload를 재생성하세요.`,
+        `조치: payload 재생성보다 먼저 저장된 payload의 실패 위치와 대시보드 read path를 확인하세요.`,
       ].join("\n"),
       invalid_payloads: [
         {
@@ -584,7 +584,7 @@ export async function getLatestRunFromNotion(): Promise<
 
   // 모든 후보 실패
   return {
-    error: `최근 ${json.results.length}개 payload가 모두 파싱 불가합니다. Agent를 다시 실행해 valid payload를 생성하세요.`,
+    error: `최근 ${json.results.length}개 payload가 모두 파싱 불가합니다. payload 재생성보다 먼저 저장된 payload의 실패 위치와 대시보드 read path를 확인하세요.`,
     invalid_payloads: invalidPayloads,
   };
 }

@@ -56,11 +56,14 @@ export async function GET() {
     ok: true,
     run_id: typeof payload.run_id === "string" ? payload.run_id : null,
     page_id: debug.page_id ?? null,
+    parse_status: debug.repair_note ? "repaired" : "ok",
     payload_length: debug.raw_payload_length,
+    preview_start: debug.raw_payload_preview.slice(0, 100) || null,
     payload_version: typeof payload.payload_version === "string" ? payload.payload_version : null,
     schema_version: typeof payload.schema_version === "string" ? payload.schema_version : null,
     is_v2: isV2,
     project_progress_count: debug.project_progress_count,
+    normalized_project_count: debug.project_progress_count,
     confirmation_queue_count: Array.isArray(payload.confirmation_queue)
       ? (payload.confirmation_queue as unknown[]).length
       : null,
